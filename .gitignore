@@ -1,0 +1,94 @@
+# =====================================================================
+# CareCoach Pro — .gitignore (Flutter App + Python Backend + React Dashboard)
+# =====================================================================
+
+# --- Secrets & lokale Konfiguration (NIEMALS committen) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+*.local
+
+# --- Betriebssystem ---
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# --- IDE / Editor ---
+.idea/
+.vscode/
+*.iml
+.fleet/
+
+# --- Claude Code (lokale, nicht geteilte Einstellungen) ---
+.claude/settings.local.json
+
+# =====================================================================
+# app/ — Flutter / Dart (iOS / iPadOS)
+# =====================================================================
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+app/build/
+app/.pub-cache/
+app/.pub/
+app/pubspec.lock
+app/ios/Pods/
+app/ios/.symlinks/
+app/ios/Flutter/Flutter.framework
+app/ios/Flutter/Flutter.podspec
+app/ios/Flutter/Generated.xcconfig
+app/ios/Flutter/flutter_export_environment.sh
+app/ios/Runner/GeneratedPluginRegistrant.*
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.moved-aside
+
+# =====================================================================
+# backend/ — Python (FastAPI)
+# =====================================================================
+backend/__pycache__/
+backend/**/__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+backend/.venv/
+backend/venv/
+.python-version
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/htmlcov/
+.coverage
+.coverage.*
+
+# Generierte PDFs / Uploads / Scans (Laufzeitdaten)
+backend/antraege/
+backend/scans/
+backend/uploads/
+
+# =====================================================================
+# dashboard/ — React 18 + TypeScript + Vite + Tailwind
+# =====================================================================
+node_modules/
+dashboard/dist/
+dashboard/build/
+dashboard/.vite/
+dashboard/coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =====================================================================
+# Logs & temporäre Dateien
+# =====================================================================
+*.log
+logs/
+tmp/
+.cache/
