@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight, AlertTriangle, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, AlertTriangle, X, FileText, Plus } from 'lucide-react';
 import { Card, SeitenKopf, Badge } from '@/components/ui';
 import type { BadgeFarbe } from '@/lib/kundenStatus';
 import { berechneFoerderung, euro } from '@/lib/foerderung';
+import { useAuth } from '@/context/AuthContext';
 import type { Massnahme } from '@/types';
 import {
   MASSNAHMEN_KATALOG,
@@ -11,16 +12,28 @@ import {
 import { KASSEN, NACHWEIS_ANFORDERUNGEN } from '@/domain/stammdatenSeed';
 import { pruefeAntrag, type Pruefpunkt, type PruefStatus } from '@/domain/pruefung';
 import { DEMO_KUNDE, DEMO_PROJEKT } from '@/domain/demoData';
+import { baueAbtretungserklaerungHtml } from '@/documents/abtretungserklaerung';
+import { baueAntragHtml, baueAntragCheckliste } from '@/documents/antrag';
 import type {
   Pflegegrad,
   Wohnform,
   NachweisCode,
   Genehmigungswahrscheinlichkeit,
   ProjektNachweis,
+  VorgangsNotiz,
   Antrag,
   Projekt,
   Kunde,
 } from '@/domain/types';
+
+// Öffnet eine generierte HTML-Seite in einem neuen Tab (Druck/PDF im Browser).
+function oeffneDokument(html: string) {
+  const w = window.open('', '_blank');
+  if (w) {
+    w.document.write(html);
+    w.document.close();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Kernworkflow als 6-Schritt-Wizard: Kunde → Pflegegrad → Kasse → Maßnahmen →
@@ -145,11 +158,93 @@ function massnahmeWarnungen(m: KatalogEintrag, wohnform: Wohnform): Warnung[] {
 }
 
 export default function Workflow() {
+  const { benutzer } = useAuth();
+  const istAdmin = benutzer?.rolle === 'admin';
+
   const [schritt, setSchritt] = useState(0);
   const [entwurf, setEntwurf] = useState<KundeEntwurf>(demoEntwurf);
   const [ausgewaehlt, setAusgewaehlt] = useState<Set<string>>(new Set(DEMO_MASSNAHME_IDS));
   // Status der Pflichtnachweise (true = vorhanden). Demo startet vollständig.
   const [nachweisVorhanden, setNachweisVorhanden] = useState<Record<string, boolean>>({});
+  // Interne Lernnotizen + Besonderheiten dieses Vorgangs (nur Admin).
+  const [besonderheiten, setBesonderheiten] = useState('');
+  const [notizen, setNotizen] = useState<VorgangsNotiz[]>([]);
+  const [notizText, setNotizText] = useState('');
+
+  function notizHinzufuegen() {
+    const text = notizText.trim();
+    if (!text) return;
+    const eintrag: VorgangsNotiz = {
+      id: `notiz-${notizen.length + 1}-${text.length}`,
+      autor: benutzer?.name ?? '—',
+      rolle: benutzer?.rolle ?? 'tester',
+      zeitpunkt: new Date().toISOString(),
+      text,
+    };
+    setNotizen((prev) => [eintrag, ...prev]);
+    setNotizText('');
+  }
+
+  // Generiert die Abtretungserklärung (§398 BGB) aus dem aktuellen Vorgang.
+  function abtretungOeffnen() {
+    const kasseObj = KASSEN.find((k) => k.id === entwurf.pflegekasse_id);
+    oeffneDokument(
+      baueAbtretungserklaerungHtml({
+        versicherter: {
+          name: `${entwurf.vorname} ${entwurf.nachname}`,
+          geburtsdatum: entwurf.geburtsdatum,
+          anschrift: `${entwurf.strasse}, ${entwurf.plz} ${entwurf.ort}`,
+          versichertennummer: DEMO_KUNDE.versichertennummer,
+        },
+        pflegekasse: { name: kasseObj?.name ?? '', ik_nummer: kasseObj?.ik_nummer ?? '' },
+        bevollmaechtigter: entwurf.bevollmaechtigt
+          ? { name: DEMO_KUNDE.angehoeriger.name }
+          : undefined,
+        massnahmen: gewaehlteKatalog.map((m) => ({
+          bezeichnung: m.bezeichnung,
+          paragraph: paragraphLabel(m.foerdertopf_id),
+          betrag: m.standard_vk_brutto,
+        })),
+        ort: entwurf.ort,
+        datum: new Date().toLocaleDateString('de-DE'),
+      }),
+    );
+  }
+
+  // Generiert den §40-Antrag inkl. Nachweis-Checkliste als Anhang.
+  function antragOeffnen() {
+    const kasseObj = KASSEN.find((k) => k.id === entwurf.pflegekasse_id);
+    oeffneDokument(
+      baueAntragHtml({
+        versicherter: {
+          name: `${entwurf.vorname} ${entwurf.nachname}`,
+          geburtsdatum: entwurf.geburtsdatum,
+          anschrift: `${entwurf.strasse}, ${entwurf.plz} ${entwurf.ort}`,
+          versichertennummer: DEMO_KUNDE.versichertennummer,
+          pflegegrad: entwurf.pflegegrad,
+          diagnose: entwurf.hauptdiagnose,
+          icd10: entwurf.icd10_codes,
+        },
+        pflegekasse: { name: kasseObj?.name ?? '', ik_nummer: kasseObj?.ik_nummer ?? '' },
+        positionen: gewaehlteKatalog.map((m) => ({
+          bezeichnung: m.bezeichnung,
+          paragraph: paragraphLabel(m.foerdertopf_id),
+          betrag: m.standard_vk_brutto,
+          begruendung: fuelleBegruendung(
+            m.standard_begruendung,
+            entwurf.hauptdiagnose,
+            entwurf.pflegegrad,
+            entwurf.icd10_codes,
+          ),
+        })),
+        checkliste: baueAntragCheckliste(gewaehlteKatalog, {
+          wohnform: entwurf.wohnform,
+          bevollmaechtigt: entwurf.bevollmaechtigt,
+        }),
+        beantragter_betrag: kalk.foerder40,
+      }),
+    );
+  }
 
   function setFeld<K extends keyof KundeEntwurf>(key: K, wert: KundeEntwurf[K]) {
     setEntwurf((e) => ({ ...e, [key]: wert }));
@@ -396,16 +491,51 @@ export default function Workflow() {
           />
         )}
         {schritt === 5 && (
-          <SchrittZusammenfassung
-            entwurf={entwurf}
-            gewaehlt={gewaehlteKatalog}
-            vkGesamt={kalk.vkGesamt}
-            gedeckt={kalk.gedeckt}
-            eigenanteil={kalk.eigenanteil}
-            maxBudget={kalk.deckel}
-            kasse={KASSEN.find((k) => k.id === entwurf.pflegekasse_id)?.name ?? '—'}
-            bestanden={pruefung.bestanden}
-          />
+          <div className="space-y-6">
+            <SchrittZusammenfassung
+              entwurf={entwurf}
+              gewaehlt={gewaehlteKatalog}
+              vkGesamt={kalk.vkGesamt}
+              gedeckt={kalk.gedeckt}
+              eigenanteil={kalk.eigenanteil}
+              maxBudget={kalk.deckel}
+              kasse={KASSEN.find((k) => k.id === entwurf.pflegekasse_id)?.name ?? '—'}
+              bestanden={pruefung.bestanden}
+            />
+
+            {/* Dokumente generieren (Browser-Druck → PDF) */}
+            <div className="border-t border-white/10 pt-5">
+              <div className="mb-3 text-xs font-bold uppercase tracking-wider text-faint">
+                Dokumente
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={antragOeffnen}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-elevated px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-hover"
+                >
+                  <FileText className="h-4 w-4 text-brand" /> Antrag + Checkliste
+                </button>
+                <button
+                  onClick={abtretungOeffnen}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-elevated px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-hover"
+                >
+                  <FileText className="h-4 w-4 text-brand" /> Abtretungserklärung § 398
+                </button>
+              </div>
+            </div>
+
+            {/* Interne Notizen — nur für Admins sichtbar */}
+            {istAdmin && (
+              <InterneNotizen
+                besonderheiten={besonderheiten}
+                onBesonderheiten={setBesonderheiten}
+                notizen={notizen}
+                notizText={notizText}
+                onNotizText={setNotizText}
+                onNotizHinzufuegen={notizHinzufuegen}
+              />
+            )}
+          </div>
         )}
       </Card>
 
@@ -1017,6 +1147,91 @@ function Summenzeile({
     <div className="flex justify-between py-0.5 text-sm">
       <span className="text-muted">{label}</span>
       <span className={`font-semibold ${farbe === 'brand' ? 'text-brand' : 'text-ink'}`}>{wert}</span>
+    </div>
+  );
+}
+
+// --- Interne Notizen & Besonderheiten (nur Admin) ---
+function InterneNotizen({
+  besonderheiten,
+  onBesonderheiten,
+  notizen,
+  notizText,
+  onNotizText,
+  onNotizHinzufuegen,
+}: {
+  besonderheiten: string;
+  onBesonderheiten: (v: string) => void;
+  notizen: VorgangsNotiz[];
+  notizText: string;
+  onNotizText: (v: string) => void;
+  onNotizHinzufuegen: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-violet-500/30 bg-violet-500/5 p-5">
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-xs font-bold uppercase tracking-wider text-violet-300">
+          Interne Notizen
+        </span>
+        <Badge farbe="violett">nur Admin</Badge>
+      </div>
+      <p className="mb-4 text-xs text-faint">
+        Lernnotizen für zukünftige Verbesserungen — für den Kunden nicht sichtbar.
+      </p>
+
+      {/* Besonderheiten dieses Falls */}
+      <label className="block">
+        <span className="mb-1.5 block text-sm font-medium text-muted">
+          Besonderheiten dieses Falls
+        </span>
+        <textarea
+          value={besonderheiten}
+          onChange={(e) => onBesonderheiten(e.target.value)}
+          rows={2}
+          placeholder="z. B. Vermieter zögerlich, MD-Begutachtung angekündigt, Sonderfall Diagnose…"
+          className="w-full resize-y rounded-xl border border-white/10 bg-elevated px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+        />
+      </label>
+
+      {/* Lernnotiz hinzufügen */}
+      <div className="mt-4">
+        <span className="mb-1.5 block text-sm font-medium text-muted">Lernnotiz hinzufügen</span>
+        <div className="flex gap-2">
+          <input
+            value={notizText}
+            onChange={(e) => onNotizText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onNotizHinzufuegen();
+            }}
+            placeholder="Notiz eingeben und Enter…"
+            className="flex-1 rounded-xl border border-white/10 bg-elevated px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+          />
+          <button
+            onClick={onNotizHinzufuegen}
+            disabled={notizText.trim() === ''}
+            className="inline-flex items-center gap-1 rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-[#0D1B2A] transition-opacity hover:opacity-90 disabled:opacity-40"
+          >
+            <Plus className="h-4 w-4" /> Notiz
+          </button>
+        </div>
+      </div>
+
+      {/* Notiz-Historie mit Zeitstempel (wer/wann/was) */}
+      {notizen.length > 0 && (
+        <div className="mt-4 space-y-2">
+          {notizen.map((n) => (
+            <div key={n.id} className="rounded-xl border border-white/10 bg-card p-3">
+              <div className="mb-1 flex items-center justify-between text-xs text-faint">
+                <span className="font-semibold text-muted">
+                  {n.autor} · {n.rolle}
+                </span>
+                <span>{new Date(n.zeitpunkt).toLocaleString('de-DE')}</span>
+              </div>
+              <div className="text-sm text-ink">{n.text}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

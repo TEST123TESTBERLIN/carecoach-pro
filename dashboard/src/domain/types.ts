@@ -284,6 +284,15 @@ export interface ProjektMassnahme {
   begruendung: string;
 }
 
+// Interne Lernnotiz an einem Vorgang (nur Admin-Sicht) — mit Audit-Zeitstempel.
+export interface VorgangsNotiz {
+  id: string;
+  autor: string;
+  rolle: string;
+  zeitpunkt: string; // ISO
+  text: string;
+}
+
 export interface Projekt {
   id: string;
   projektnummer: string;
@@ -293,6 +302,10 @@ export interface Projekt {
   pipeline_status: ProjektStatus;
   massnahmen: ProjektMassnahme[];
   abtretung_aktiv: boolean;
+  // Besonderheiten dieses Falls (für zukünftige Verbesserungen, intern).
+  besonderheiten?: string;
+  // Interne Lernnotizen (nur Admin sichtbar) inkl. wer/wann.
+  interne_notizen?: VorgangsNotiz[];
   erstellt_am: string;
   geaendert_am: string;
 }

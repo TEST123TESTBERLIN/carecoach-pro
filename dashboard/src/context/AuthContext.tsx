@@ -1,10 +1,12 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { findeBenutzer, type BenutzerRolle } from '@/domain/users';
 
 // Minimaler Auth-Kontext (Demo). In Produktion: Token vom Backend (JWT) +
 // sichere Speicherung. Hier nur sessionStorage als Platzhalter-Persistenz.
 interface Benutzer {
   email: string;
   name: string;
+  rolle: BenutzerRolle;
 }
 
 interface AuthContextValue {
@@ -25,12 +27,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const anmelden = useCallback(async (email: string, passwort: string) => {
-    // Demo-Login: akzeptiert jede nicht-leere Kombination.
-    // TODO-frei: ersetzt durch echten POST /api/auth/login, sobald Backend steht.
+    // Validierung gegen die Konten-Liste (Mock). Später: POST /api/auth/login.
     if (!email || !passwort) {
       throw new Error('Bitte E-Mail und Passwort eingeben.');
     }
-    const neuerBenutzer: Benutzer = { email, name: email.split('@')[0] };
+    const konto = findeBenutzer(email, passwort);
+    if (!konto) {
+      throw new Error('Unbekannte Zugangsdaten.');
+    }
+    const neuerBenutzer: Benutzer = { email: konto.email, name: konto.name, rolle: konto.rolle };
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(neuerBenutzer));
     setBenutzer(neuerBenutzer);
   }, []);

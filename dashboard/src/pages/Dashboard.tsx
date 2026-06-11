@@ -8,7 +8,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Card, SeitenKopf, KlientStatusBadge } from '@/components/ui';
-import { KLIENTEN, DOKUMENTE, MASSNAHMEN } from '@/data/mockData';
+import { DOKUMENTE, MASSNAHMEN } from '@/data/mockData';
+import { useKunden } from '@/context/KundenContext';
 import { berechneFoerderung, euro } from '@/lib/foerderung';
 
 // Standard-Projektannahme je Kunde für Pipeline-/Umsatzschätzungen:
@@ -54,29 +55,32 @@ function KpiKachel({
 }
 
 export default function Dashboard() {
-  // --- Kennzahlen aus den (Demo-)Daten ableiten ---
-  const kundenGesamt = KLIENTEN.length;
+  const { kunden } = useKunden();
 
-  const aktiveProjekte = KLIENTEN.filter((k) =>
-    ['beratung', 'antrag_gestellt', 'bewilligt'].includes(k.status),
+  // --- Kennzahlen aus den Daten ableiten ---
+  const kundenGesamt = kunden.length;
+
+  const aktiveProjekte = kunden.filter((k) =>
+    ['in_bearbeitung', 'antrag_gestellt', 'bewilligt'].includes(k.status),
   ).length;
 
   // Fördermittel beantragt: §40-Förderbetrag der Kunden mit laufendem/bewilligtem Antrag
-  const foerdermittelBeantragt = KLIENTEN.filter((k) =>
-    ['antrag_gestellt', 'bewilligt'].includes(k.status),
-  ).reduce(
-    (s, k) => s + berechneFoerderung(STANDARD_PAKET, k.personen_mit_pflegegrad).foerderBetrag,
-    0,
-  );
+  const foerdermittelBeantragt = kunden
+    .filter((k) => ['antrag_gestellt', 'bewilligt'].includes(k.status))
+    .reduce(
+      (s, k) =>
+        s + berechneFoerderung(STANDARD_PAKET, k.personen_mit_pflegegrad ?? 1).foerderBetrag,
+      0,
+    );
 
   // Umsatzpotential: Brutto-Projektvolumen über alle Kunden
-  const umsatzpotential = KLIENTEN.reduce(
-    (s, k) => s + berechneFoerderung(STANDARD_PAKET, k.personen_mit_pflegegrad).vkGesamt,
+  const umsatzpotential = kunden.reduce(
+    (s, k) => s + berechneFoerderung(STANDARD_PAKET, k.personen_mit_pflegegrad ?? 1).vkGesamt,
     0,
   );
 
   const offeneDokumente = DOKUMENTE.filter((d) => d.status !== 'bewilligt').length;
-  const letzteKlienten = KLIENTEN.slice(0, 4);
+  const letzteKlienten = kunden.slice(0, 4);
 
   return (
     <div>
@@ -140,7 +144,7 @@ export default function Dashboard() {
                     {k.vorname} {k.nachname}
                   </div>
                   <div className="truncate text-xs text-faint">
-                    PG {k.pflegegrad} · {k.pflegekasse.name}
+                    PG {k.pflegegrad} · {k.krankenkasse}
                   </div>
                 </div>
                 <KlientStatusBadge status={k.status} />

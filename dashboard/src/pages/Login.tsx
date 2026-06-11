@@ -90,7 +90,7 @@ export default function Login() {
           </button>
 
           <p className="text-center text-xs text-faint">
-            Demo-Zugang: beliebige E-Mail und Passwort.
+            Zugang nur mit hinterlegtem Testkonto.
           </p>
         </form>
       </div>

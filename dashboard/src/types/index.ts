@@ -3,41 +3,56 @@
 
 export type Pflegegrad = 1 | 2 | 3 | 4 | 5;
 
-export type Bundesland = 'BE' | 'BY' | 'HH' | 'NW' | 'BW' | 'HE' | 'SN' | 'NI';
+// Status eines Kunden im Förder-Prozess.
+export type KlientStatus =
+  | 'neu'
+  | 'in_bearbeitung'
+  | 'antrag_gestellt'
+  | 'bewilligt'
+  | 'abgeschlossen';
 
-export interface Pflegekasse {
+// Kontaktdaten eines/einer Angehörigen.
+export interface Angehoeriger {
   name: string;
-  versichertennummer: string;
+  telefon: string;
+  email: string;
 }
 
-export interface PflegedienstPartner {
-  name: string;
-  provision_prozent: number;
+// Ambulanter Pflegedienst inkl. Kontaktperson.
+export interface AmbulantePflege {
+  dienst: string;
+  kontaktperson: string;
+  telefon: string;
 }
 
 export interface Klient {
   id: string;
+  // Person
   vorname: string;
   nachname: string;
-  alter: number;
+  // Adresse
+  strasse: string;
+  plz: string;
+  ort: string;
+  // Pflege & Kasse
   pflegegrad: Pflegegrad;
-  hauptdiagnose: string;
-  pflegekasse: Pflegekasse;
-  bundesland: Bundesland;
-  stadt: string;
+  krankenkasse: string;
+  krankenkasse_ansprechpartner: string;
+  // Kontakt
+  telefon: string;
+  email: string;
+  // Angehörige & ambulante Pflege
+  angehoeriger: Angehoeriger;
+  ambulante_pflege: AmbulantePflege;
+  // Prozess
   status: KlientStatus;
-  // Anzahl Personen mit Pflegegrad im Haushalt (Förder-Multiplikator, max. 4)
-  personen_mit_pflegegrad: number;
-  pflegedienst_partner?: PflegedienstPartner;
+  // Anzahl Personen mit Pflegegrad im Haushalt (Förder-Multiplikator, max. 4).
+  // Optional — Standard 1, wird im Förderrechner verwendet.
+  personen_mit_pflegegrad?: number;
 }
 
-export type KlientStatus =
-  | 'lead'
-  | 'beratung'
-  | 'antrag_gestellt'
-  | 'bewilligt'
-  | 'abgeschlossen'
-  | 'abgelehnt';
+// Eingabedaten für Anlegen/Bearbeiten (ohne generierte id).
+export type KlientEingabe = Omit<Klient, 'id'>;
 
 export interface Massnahme {
   id: string;

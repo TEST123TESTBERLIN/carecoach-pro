@@ -1,16 +1,19 @@
 import { useState, useMemo } from 'react';
 import { Card, SeitenKopf, Badge } from '@/components/ui';
-import { KLIENTEN, MASSNAHMEN } from '@/data/mockData';
+import { MASSNAHMEN } from '@/data/mockData';
+import { useKunden } from '@/context/KundenContext';
 import { berechneFoerderung, euro, FOERDERBETRAG_PRO_TRAEGER } from '@/lib/foerderung';
 
 // Förderrechner: Maßnahmen wählen → §40-Förderung, Eigenanteil (Kundensicht)
 // und interne Marge (Admin-Sicht) werden getrennt dargestellt.
 export default function Foerderrechner() {
-  const [klientId, setKlientId] = useState(KLIENTEN[0]?.id ?? '');
+  const { kunden } = useKunden();
+  const [klientId, setKlientId] = useState(kunden[0]?.id ?? '');
   const [ausgewaehlt, setAusgewaehlt] = useState<Set<string>>(new Set(['m1']));
 
-  const klient = KLIENTEN.find((k) => k.id === klientId);
-  const provisionProzent = klient?.pflegedienst_partner?.provision_prozent ?? 0;
+  const klient = kunden.find((k) => k.id === klientId) ?? kunden[0];
+  // Ohne B2B-Provisionsvertrag wird hier keine Provision angesetzt.
+  const provisionProzent = 0;
   const traeger = klient?.personen_mit_pflegegrad ?? 1;
 
   const gewaehlteMassnahmen = useMemo(
@@ -55,7 +58,7 @@ export default function Foerderrechner() {
             onChange={(e) => setKlientId(e.target.value)}
             className="rounded-xl border border-white/10 bg-elevated px-3 py-2 text-sm text-ink outline-none focus:border-brand"
           >
-            {KLIENTEN.map((k) => (
+            {kunden.map((k) => (
               <option key={k.id} value={k.id} className="bg-elevated">
                 {k.vorname} {k.nachname} · PG {k.pflegegrad}
               </option>
@@ -64,9 +67,6 @@ export default function Foerderrechner() {
           <Badge farbe="brand">
             {traeger}× Träger → max. {euro(traeger * FOERDERBETRAG_PRO_TRAEGER)}
           </Badge>
-          {provisionProzent > 0 && (
-            <Badge farbe="blau">{provisionProzent}% Provision</Badge>
-          )}
         </div>
       </Card>
 
