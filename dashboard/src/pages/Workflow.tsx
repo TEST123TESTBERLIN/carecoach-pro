@@ -109,6 +109,41 @@ function demoEntwurf(): KundeEntwurf {
 // Demo-Vorauswahl: BAD-001 + WOHN-003 + SICH-001 (aus DEMO_PROJEKT abgeleitet).
 const DEMO_MASSNAHME_IDS = new Set(DEMO_PROJEKT.massnahmen.map((m) => m.massnahme_id));
 
+type KatalogEintrag = (typeof MASSNAHMEN_KATALOG)[number];
+
+// Katalog-Maßnahme → Adapter für die zentrale Förder-Logik (lib/foerderung).
+function alsMassnahme(m: KatalogEintrag): Massnahme {
+  return {
+    id: m.id,
+    bezeichnung: m.bezeichnung,
+    paragraph: paragraphLabel(m.foerdertopf_id),
+    vk_brutto: m.standard_vk_brutto,
+    ek_netto: m.standard_ek_netto,
+  };
+}
+
+interface Warnung {
+  icon: string;
+  text: string;
+}
+
+// Warnhinweise je Maßnahme (als Icon + Tooltip in der Auswahl).
+function massnahmeWarnungen(m: KatalogEintrag, wohnform: Wohnform): Warnung[] {
+  const out: Warnung[] = [];
+  if (m.foerdertopf_id === 'ft-33-sgbv')
+    out.push({ icon: '🏥', text: 'Über Arzt beantragen — Hilfsmittel nach § 33 SGB V, nicht § 40' });
+  if (m.foerderfaehig_status === 'einzelfall')
+    out.push({ icon: '⚠️', text: 'Einzelfallentscheidung — keine Garantie der Kostenübernahme' });
+  if (
+    (m.hv_genehmigung_noetig || m.zusatz_nachweise.includes('vermieterzustimmung')) &&
+    wohnform === 'miete'
+  )
+    out.push({ icon: '🏠', text: 'Vermieterzustimmung erforderlich' });
+  if (m.genehmigungswahrscheinlichkeit === 'mittel' || m.genehmigungswahrscheinlichkeit === 'gering')
+    out.push({ icon: '⏱️', text: 'Kann bis zu 5 Wochen dauern (MD-Prüfung möglich)' });
+  return out;
+}
+
 export default function Workflow() {
   const [schritt, setSchritt] = useState(0);
   const [entwurf, setEntwurf] = useState<KundeEntwurf>(demoEntwurf);
@@ -143,16 +178,35 @@ export default function Workflow() {
     [ausgewaehlt],
   );
 
-  // Förder-Berechnung über die zentrale Logik (lib/foerderung).
-  const erg = useMemo(() => {
-    const adapter: Massnahme[] = gewaehlteKatalog.map((m) => ({
-      id: m.id,
-      bezeichnung: m.bezeichnung,
-      paragraph: paragraphLabel(m.foerdertopf_id),
-      vk_brutto: m.standard_vk_brutto,
-      ek_netto: m.standard_ek_netto,
-    }));
-    return berechneFoerderung(adapter, entwurf.personen_mit_pflegegrad, 0);
+  // Topf-getrennte Live-Kalkulation: §40 Abs.4 zählt gegen den §40-Deckel
+  // (zentrale Logik), §33 SGB V läuft separat über die Arztverordnung (GKV)
+  // und belastet weder den §40-Deckel noch den Eigenanteil.
+  const kalk = useMemo(() => {
+    const m40 = gewaehlteKatalog.filter((m) => m.foerdertopf_id === 'ft-40-4');
+    const m33 = gewaehlteKatalog.filter((m) => m.foerdertopf_id === 'ft-33-sgbv');
+    const mAndere = gewaehlteKatalog.filter(
+      (m) => m.foerdertopf_id !== 'ft-40-4' && m.foerdertopf_id !== 'ft-33-sgbv',
+    );
+    // §40-Bucket über die kanonische Förder-Logik.
+    const e40 = berechneFoerderung(m40.map(alsMassnahme), entwurf.personen_mit_pflegegrad, 0);
+    const summe = (liste: KatalogEintrag[]) =>
+      liste.reduce((s, m) => s + m.standard_vk_brutto, 0);
+    const vk33 = summe(m33);
+    const vkAndere = summe(mAndere);
+    const vkGesamt = e40.vkGesamt + vk33 + vkAndere;
+    return {
+      vk40: e40.vkGesamt,
+      deckel: e40.maxBudget,
+      foerder40: e40.foerderBetrag,
+      eigenanteil: e40.eigenanteil, // nur §40-Überschuss
+      budgetProzent: e40.budgetAuslastungProzent,
+      ueber: e40.vkGesamt > e40.maxBudget,
+      vk33,
+      vkAndere,
+      vkGesamt,
+      // alles, was nicht zum Eigenanteil wird (Kostenträger §40 + GKV §33 + …).
+      gedeckt: vkGesamt - e40.eigenanteil,
+    };
   }, [gewaehlteKatalog, entwurf.personen_mit_pflegegrad]);
 
   // Pflichtnachweise aus der Nachweismatrix (ft-40-4) ableiten: global +
@@ -219,7 +273,8 @@ export default function Workflow() {
         foerdertopf_id: m.foerdertopf_id,
         vk_brutto: m.standard_vk_brutto,
         ek_netto: m.standard_ek_netto,
-        foerderbetrag_beantragt: m.standard_vk_brutto,
+        // Nur §40-Maßnahmen sind §40-Anträge; §33 läuft über die GKV-Verordnung.
+        foerderbetrag_beantragt: m.foerdertopf_id === 'ft-40-4' ? m.standard_vk_brutto : 0,
         raum: '—',
         begruendung: fuelleBegruendung(
           m.standard_begruendung,
@@ -242,7 +297,7 @@ export default function Workflow() {
       gestellt_am: iso(heute),
       entscheidungsfrist: plus(21),
       genehmigungsfiktion_ab: plus(21),
-      beantragter_betrag: erg.foerderBetrag,
+      beantragter_betrag: kalk.foerder40,
       geplanter_umsetzungsbeginn: plus(30),
       nachweise,
     };
@@ -260,7 +315,7 @@ export default function Workflow() {
     };
 
     return pruefeAntrag({ antrag, projekt, kunde, dokumente: [], rechtsgrundlageVorhanden: true });
-  }, [pflichtnachweise, gewaehlteKatalog, entwurf, erg.foerderBetrag, nachweisVorhanden]);
+  }, [pflichtnachweise, gewaehlteKatalog, entwurf, kalk.foerder40, nachweisVorhanden]);
 
   // Pro Schritt: darf weiter geklickt werden?
   const kannWeiter = (() => {
@@ -325,6 +380,8 @@ export default function Workflow() {
             ausgewaehlt={ausgewaehlt}
             onToggle={toggleMassnahme}
             pflegegrad={entwurf.pflegegrad}
+            wohnform={entwurf.wohnform}
+            kalk={kalk}
           />
         )}
         {schritt === 4 && (
@@ -342,10 +399,10 @@ export default function Workflow() {
           <SchrittZusammenfassung
             entwurf={entwurf}
             gewaehlt={gewaehlteKatalog}
-            vkGesamt={erg.vkGesamt}
-            foerderBetrag={erg.foerderBetrag}
-            eigenanteil={erg.eigenanteil}
-            maxBudget={erg.maxBudget}
+            vkGesamt={kalk.vkGesamt}
+            gedeckt={kalk.gedeckt}
+            eigenanteil={kalk.eigenanteil}
+            maxBudget={kalk.deckel}
             kasse={KASSEN.find((k) => k.id === entwurf.pflegekasse_id)?.name ?? '—'}
             bestanden={pruefung.bestanden}
           />
@@ -376,7 +433,7 @@ export default function Workflow() {
             className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-[#0D1B2A] transition-opacity hover:opacity-90 disabled:opacity-40"
             title={pruefung.bestanden ? undefined : 'Prüfung noch nicht bestanden'}
           >
-            <Check className="h-4 w-4" /> Antrag stellen — {erg.eigenanteil === 0 ? '0 € für den Kunden' : euro(erg.eigenanteil)}
+            <Check className="h-4 w-4" /> Antrag stellen — {kalk.eigenanteil === 0 ? '0 € für den Kunden' : euro(kalk.eigenanteil)}
           </button>
         )}
       </div>
@@ -559,69 +616,206 @@ function SchrittPflegekasse({
   );
 }
 
-// --- Schritt 4: Maßnahmen (gefiltert nach Pflegegrad) ---
+// Aggregierte Live-Kalkulation (Rückgabe der kalk-useMemo).
+interface Kalk {
+  vk40: number;
+  deckel: number;
+  foerder40: number;
+  eigenanteil: number;
+  budgetProzent: number;
+  ueber: boolean;
+  vk33: number;
+  vkAndere: number;
+  vkGesamt: number;
+  gedeckt: number;
+}
+
+// --- Schritt 4: Maßnahmen (gefiltert nach Pflegegrad) + Live-Kalkulation ---
 function SchrittMassnahmen({
   massnahmen,
   ausgewaehlt,
   onToggle,
   pflegegrad,
+  wohnform,
+  kalk,
 }: {
-  massnahmen: typeof MASSNAHMEN_KATALOG;
+  massnahmen: KatalogEintrag[];
   ausgewaehlt: Set<string>;
   onToggle: (id: string) => void;
   pflegegrad: Pflegegrad;
+  wohnform: Wohnform;
+  kalk: Kalk;
 }) {
   return (
     <div>
       <h2 className="text-lg font-bold text-ink">Maßnahmen auswählen</h2>
       <p className="mt-1 text-sm text-muted">
-        {massnahmen.length} Maßnahmen für Pflegegrad {pflegegrad} verfügbar — VK und
-        Bewilligungswahrscheinlichkeit je Maßnahme.
+        {massnahmen.length} Maßnahmen für Pflegegrad {pflegegrad} verfügbar — Live-Kalkulation rechts.
       </p>
-      <div className="mt-5 space-y-2">
-        {massnahmen.map((m) => {
-          const sel = ausgewaehlt.has(m.id);
-          const w = m.genehmigungswahrscheinlichkeit
-            ? WAHRSCHEINLICHKEIT_META[m.genehmigungswahrscheinlichkeit]
-            : undefined;
-          return (
-            <button
-              key={m.id}
-              onClick={() => onToggle(m.id)}
-              className={`flex w-full items-center justify-between gap-3 rounded-xl border p-4 text-left transition-all ${
-                sel ? 'border-brand/40 bg-brand/10' : 'border-white/10 bg-elevated hover:border-white/25'
-              }`}
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <div
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
-                    sel ? 'border-brand bg-brand' : 'border-white/30'
-                  }`}
-                >
-                  {sel && <Check className="h-3.5 w-3.5 text-[#0D1B2A]" />}
-                </div>
-                <div className="min-w-0">
-                  <div className={`truncate text-sm font-semibold ${sel ? 'text-brand' : 'text-ink'}`}>
-                    {m.code} · {m.bezeichnung}
+
+      <div className="mt-5 grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
+        {/* Maßnahmenliste */}
+        <div className="space-y-2 lg:col-span-2">
+          {massnahmen.map((m) => {
+            const sel = ausgewaehlt.has(m.id);
+            const w = m.genehmigungswahrscheinlichkeit
+              ? WAHRSCHEINLICHKEIT_META[m.genehmigungswahrscheinlichkeit]
+              : undefined;
+            const warnungen = massnahmeWarnungen(m, wohnform);
+            return (
+              <button
+                key={m.id}
+                onClick={() => onToggle(m.id)}
+                className={`flex w-full items-center justify-between gap-3 rounded-xl border p-4 text-left transition-all ${
+                  sel ? 'border-brand/40 bg-brand/10' : 'border-white/10 bg-elevated hover:border-white/25'
+                }`}
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <div
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+                      sel ? 'border-brand bg-brand' : 'border-white/30'
+                    }`}
+                  >
+                    {sel && <Check className="h-3.5 w-3.5 text-[#0D1B2A]" />}
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs text-faint">{paragraphLabel(m.foerdertopf_id)}</span>
-                    {w && <Badge farbe={w.farbe}>{w.label}</Badge>}
-                    {m.foerderfaehig_status === 'einzelfall' && (
-                      <Badge farbe="warn">Einzelfall</Badge>
-                    )}
+                  <div className="min-w-0">
+                    <div className={`truncate text-sm font-semibold ${sel ? 'text-brand' : 'text-ink'}`}>
+                      {m.code} · {m.bezeichnung}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span className="rounded-md bg-base/60 px-1.5 py-0.5 text-xs text-faint">
+                        {paragraphLabel(m.foerdertopf_id)}
+                      </span>
+                      {w && <Badge farbe={w.farbe}>{w.label}</Badge>}
+                      {warnungen.map((warn) => (
+                        <span
+                          key={warn.icon}
+                          title={warn.text}
+                          className="cursor-help text-sm leading-none"
+                          aria-label={warn.text}
+                        >
+                          {warn.icon}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="shrink-0 text-right">
-                <div className={`text-sm font-bold ${sel ? 'text-brand' : 'text-ink'}`}>
-                  {euro(m.standard_vk_brutto)}
+                <div className="shrink-0 text-right">
+                  <div className={`text-sm font-bold ${sel ? 'text-brand' : 'text-ink'}`}>
+                    {euro(m.standard_vk_brutto)}
+                  </div>
+                  <div className="text-xs text-faint">VK brutto</div>
                 </div>
-                <div className="text-xs text-faint">VK brutto</div>
-              </div>
-            </button>
-          );
-        })}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Sticky Budget-Panel (oben rechts) */}
+        <div className="lg:sticky lg:top-6">
+          <BudgetPanel kalk={kalk} />
+        </div>
+      </div>
+
+      {/* Zusammenfassung nach Fördertopf (vor „Weiter") */}
+      <ToepfeZusammenfassung kalk={kalk} />
+    </div>
+  );
+}
+
+// Budget-Balken §40 Abs.4 — wird bei Überschreitung rot, zeigt dann den Eigenanteil.
+function BudgetPanel({ kalk }: { kalk: Kalk }) {
+  const farbe = kalk.ueber ? '#FF6B6B' : kalk.budgetProzent > 70 ? '#F5A623' : '#2ECC8A';
+  return (
+    <div className="rounded-2xl border border-white/10 bg-elevated p-5">
+      <div className="text-xs font-bold uppercase tracking-wider text-faint">
+        Förderbudget § 40 Abs. 4
+      </div>
+      <div className="mb-1.5 mt-3 flex justify-between text-xs">
+        <span className={kalk.ueber ? 'font-semibold text-danger' : 'text-muted'}>
+          {euro(kalk.vk40)}
+        </span>
+        <span className="text-faint">max. {euro(kalk.deckel)}</span>
+      </div>
+      <div className="h-2.5 overflow-hidden rounded-full bg-base">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${kalk.budgetProzent}%`, backgroundColor: farbe }}
+        />
+      </div>
+
+      {kalk.ueber ? (
+        <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-warn">
+          ⚠️ {euro(kalk.eigenanteil)} Eigenanteil
+        </div>
+      ) : (
+        <div className="mt-3 text-xs font-medium text-brand">✓ im Budget</div>
+      )}
+
+      {kalk.vk33 > 0 && (
+        <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3 text-xs">
+          <span className="text-muted">🏥 § 33 SGB V (über Arzt)</span>
+          <span className="font-semibold text-ink">{euro(kalk.vk33)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Zusammenfassung nach Fördertopf — getrennt §40 / §33 / Eigenanteil / Gesamt.
+function ToepfeZusammenfassung({ kalk }: { kalk: Kalk }) {
+  return (
+    <div className="mt-6 rounded-2xl border border-white/10 bg-card p-5">
+      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-faint">Kalkulation</div>
+      <div className="space-y-2 text-sm">
+        <TopfZeile
+          label="§ 40 Abs. 4"
+          wert={euro(kalk.vk40)}
+          hinweis={kalk.ueber ? `⚠ ${euro(kalk.eigenanteil)} Eigenanteil` : '✓ im Budget'}
+          hinweisFarbe={kalk.ueber ? 'text-warn' : 'text-brand'}
+        />
+        {kalk.vk33 > 0 && (
+          <TopfZeile
+            label="§ 33 SGB V"
+            wert={euro(kalk.vk33)}
+            hinweis="→ Arztverordnung nötig"
+            hinweisFarbe="text-faint"
+          />
+        )}
+        {kalk.vkAndere > 0 && <TopfZeile label="Weitere" wert={euro(kalk.vkAndere)} />}
+        <TopfZeile
+          label="Eigenanteil"
+          wert={euro(kalk.eigenanteil)}
+          wertFarbe={kalk.eigenanteil === 0 ? 'text-brand' : 'text-warn'}
+        />
+        <div className="flex items-center justify-between border-t border-white/10 pt-2">
+          <span className="font-bold text-ink">Gesamtprojekt</span>
+          <span className="text-base font-bold text-ink">{euro(kalk.vkGesamt)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TopfZeile({
+  label,
+  wert,
+  hinweis,
+  hinweisFarbe = 'text-faint',
+  wertFarbe = 'text-ink',
+}: {
+  label: string;
+  wert: string;
+  hinweis?: string;
+  hinweisFarbe?: string;
+  wertFarbe?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted">{label}</span>
+      <div className="flex items-center gap-3">
+        {hinweis && <span className={`text-xs ${hinweisFarbe}`}>{hinweis}</span>}
+        <span className={`w-20 text-right font-semibold ${wertFarbe}`}>{wert}</span>
       </div>
     </div>
   );
@@ -733,16 +927,16 @@ function SchrittZusammenfassung({
   entwurf,
   gewaehlt,
   vkGesamt,
-  foerderBetrag,
+  gedeckt,
   eigenanteil,
   maxBudget,
   kasse,
   bestanden,
 }: {
   entwurf: KundeEntwurf;
-  gewaehlt: typeof MASSNAHMEN_KATALOG;
+  gewaehlt: KatalogEintrag[];
   vkGesamt: number;
-  foerderBetrag: number;
+  gedeckt: number;
   eigenanteil: number;
   maxBudget: number;
   kasse: string;
@@ -781,7 +975,7 @@ function SchrittZusammenfassung({
               Kunden-Kalkulation
             </div>
             <Summenzeile label="Projektkosten (VK)" wert={euro(vkGesamt)} />
-            <Summenzeile label="§40-Förderung" wert={`−${euro(foerderBetrag)}`} farbe="brand" />
+            <Summenzeile label="Kostenträger (§40 + §33)" wert={`−${euro(gedeckt)}`} farbe="brand" />
             <div className="mt-2 flex items-center justify-between border-t border-white/10 pt-2">
               <span className="font-bold text-ink">Eigenanteil Kunde</span>
               <span className={`text-xl font-bold ${eigenanteil === 0 ? 'text-brand' : 'text-warn'}`}>
