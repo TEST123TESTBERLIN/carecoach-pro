@@ -1,0 +1,828 @@
+import { useMemo, useState } from 'react';
+import { Check, ChevronLeft, ChevronRight, AlertTriangle, X } from 'lucide-react';
+import { Card, SeitenKopf, Badge } from '@/components/ui';
+import type { BadgeFarbe } from '@/lib/kundenStatus';
+import { berechneFoerderung, euro } from '@/lib/foerderung';
+import type { Massnahme } from '@/types';
+import {
+  MASSNAHMEN_KATALOG,
+  NACHWEIS_BEZEICHNUNG,
+} from '@/domain/seed';
+import { KASSEN, NACHWEIS_ANFORDERUNGEN } from '@/domain/stammdatenSeed';
+import { pruefeAntrag, type Pruefpunkt, type PruefStatus } from '@/domain/pruefung';
+import { DEMO_KUNDE, DEMO_PROJEKT } from '@/domain/demoData';
+import type {
+  Pflegegrad,
+  Wohnform,
+  NachweisCode,
+  Genehmigungswahrscheinlichkeit,
+  ProjektNachweis,
+  Antrag,
+  Projekt,
+  Kunde,
+} from '@/domain/types';
+
+// ---------------------------------------------------------------------------
+// Kernworkflow als 6-Schritt-Wizard: Kunde → Pflegegrad → Kasse → Maßnahmen →
+// Vollständigkeitsprüfung → Zusammenfassung. Nutzt den Domänen-Layer (Seed,
+// Nachweismatrix, pruefeAntrag) und ist mit der Demo-Klientin (demoData) vorbefüllt.
+// ---------------------------------------------------------------------------
+
+const SCHRITTE = [
+  'Kundendaten',
+  'Pflegegrad',
+  'Pflegekasse',
+  'Maßnahmen',
+  'Prüfung',
+  'Zusammenfassung',
+] as const;
+
+// Bewilligungswahrscheinlichkeit → Badge-Darstellung.
+const WAHRSCHEINLICHKEIT_META: Record<
+  Genehmigungswahrscheinlichkeit,
+  { label: string; farbe: BadgeFarbe }
+> = {
+  sehr_hoch: { label: 'Sehr hoch', farbe: 'brand' },
+  hoch: { label: 'Hoch', farbe: 'brand' },
+  mittel: { label: 'Mittel', farbe: 'warn' },
+  gering: { label: 'Gering', farbe: 'danger' },
+};
+
+// Lesbare Paragraph-Bezeichnung je Fördertopf (für die Maßnahmenkarte / Antrag).
+function paragraphLabel(foerdertopfId: string): string {
+  return foerdertopfId === 'ft-33-sgbv' ? '§ 33 SGB V' : '§ 40 Abs. 4 SGB XI';
+}
+
+// Platzhalter in der Standardbegründung mit den Kundendaten füllen.
+function fuelleBegruendung(
+  text: string,
+  diagnose: string,
+  pflegegrad: number,
+  icd10: string[],
+): string {
+  // split/join statt replaceAll (ES2020-Target).
+  const ersetze = (s: string, von: string, nach: string) => s.split(von).join(nach);
+  let out = ersetze(text, '{{diagnose}}', diagnose || 'der vorliegenden Erkrankung');
+  out = ersetze(out, '{{pflegegrad}}', String(pflegegrad));
+  out = ersetze(out, '{{icd10}}', icd10.length ? icd10.join(', ') : '—');
+  out = ersetze(out, '{{funktionseinschraenkung}}', 'eingeschränkter Mobilität');
+  return out;
+}
+
+// Entwurf der im Wizard erfassten Kundendaten (Teilmenge des Domänen-Kunde).
+interface KundeEntwurf {
+  vorname: string;
+  nachname: string;
+  geburtsdatum: string;
+  strasse: string;
+  plz: string;
+  ort: string;
+  pflegegrad: Pflegegrad;
+  pflegekasse_id: string;
+  wohnform: Wohnform;
+  personen_mit_pflegegrad: number;
+  hauptdiagnose: string;
+  icd10_codes: string[];
+  bevollmaechtigt: boolean;
+}
+
+// Vorbefüllung aus der Demo-Klientin (demoData.ts) — sofort testbar.
+function demoEntwurf(): KundeEntwurf {
+  const kasse = KASSEN.find((k) => k.name === DEMO_KUNDE.pflegekasse);
+  return {
+    vorname: DEMO_KUNDE.vorname,
+    nachname: DEMO_KUNDE.nachname,
+    geburtsdatum: DEMO_KUNDE.geburtsdatum ?? '',
+    strasse: DEMO_KUNDE.strasse,
+    plz: DEMO_KUNDE.plz,
+    ort: DEMO_KUNDE.ort,
+    pflegegrad: DEMO_KUNDE.pflegegrad,
+    pflegekasse_id: kasse?.id ?? KASSEN[0].id,
+    wohnform: DEMO_KUNDE.wohnform,
+    personen_mit_pflegegrad: DEMO_KUNDE.personen_mit_pflegegrad,
+    hauptdiagnose: DEMO_KUNDE.hauptdiagnose,
+    icd10_codes: DEMO_KUNDE.icd10_codes,
+    bevollmaechtigt: DEMO_KUNDE.angehoeriger.ist_bevollmaechtigter,
+  };
+}
+
+// Demo-Vorauswahl: BAD-001 + WOHN-003 + SICH-001 (aus DEMO_PROJEKT abgeleitet).
+const DEMO_MASSNAHME_IDS = new Set(DEMO_PROJEKT.massnahmen.map((m) => m.massnahme_id));
+
+export default function Workflow() {
+  const [schritt, setSchritt] = useState(0);
+  const [entwurf, setEntwurf] = useState<KundeEntwurf>(demoEntwurf);
+  const [ausgewaehlt, setAusgewaehlt] = useState<Set<string>>(new Set(DEMO_MASSNAHME_IDS));
+  // Status der Pflichtnachweise (true = vorhanden). Demo startet vollständig.
+  const [nachweisVorhanden, setNachweisVorhanden] = useState<Record<string, boolean>>({});
+
+  function setFeld<K extends keyof KundeEntwurf>(key: K, wert: KundeEntwurf[K]) {
+    setEntwurf((e) => ({ ...e, [key]: wert }));
+  }
+
+  function toggleMassnahme(id: string) {
+    setAusgewaehlt((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+
+  // Maßnahmen, die für den gewählten Pflegegrad infrage kommen.
+  const verfuegbareMassnahmen = useMemo(
+    () =>
+      MASSNAHMEN_KATALOG.filter(
+        (m) => m.aktiv && (m.pflegegrad_voraussetzung ?? 1) <= entwurf.pflegegrad,
+      ),
+    [entwurf.pflegegrad],
+  );
+
+  const gewaehlteKatalog = useMemo(
+    () => MASSNAHMEN_KATALOG.filter((m) => ausgewaehlt.has(m.id)),
+    [ausgewaehlt],
+  );
+
+  // Förder-Berechnung über die zentrale Logik (lib/foerderung).
+  const erg = useMemo(() => {
+    const adapter: Massnahme[] = gewaehlteKatalog.map((m) => ({
+      id: m.id,
+      bezeichnung: m.bezeichnung,
+      paragraph: paragraphLabel(m.foerdertopf_id),
+      vk_brutto: m.standard_vk_brutto,
+      ek_netto: m.standard_ek_netto,
+    }));
+    return berechneFoerderung(adapter, entwurf.personen_mit_pflegegrad, 0);
+  }, [gewaehlteKatalog, entwurf.personen_mit_pflegegrad]);
+
+  // Pflichtnachweise aus der Nachweismatrix (ft-40-4) ableiten: global +
+  // bedingt nach Wohnform und ausgewählten Maßnahmenkategorien.
+  const pflichtnachweise = useMemo(() => {
+    const kategorien = new Set(gewaehlteKatalog.map((m) => m.kategorie));
+    const codes = new Map<NachweisCode, { code: NachweisCode; bezeichnung: string; pflicht: boolean }>();
+    for (const a of NACHWEIS_ANFORDERUNGEN.filter((n) => n.foerdertopf_id === 'ft-40-4')) {
+      const wohnformPasst = !a.bedingung_wohnform || a.bedingung_wohnform === entwurf.wohnform;
+      const kategoriePasst = !a.massnahme_kategorie || kategorien.has(a.massnahme_kategorie);
+      // Vollmacht nur, wenn ein Bevollmächtigter handelt.
+      if (a.nachweis_code === 'vollmacht' && !entwurf.bevollmaechtigt) continue;
+      if (wohnformPasst && kategoriePasst) {
+        const vorhanden = codes.get(a.nachweis_code);
+        // Pflicht „gewinnt", falls ein Code mehrfach (bedingt) auftritt.
+        codes.set(a.nachweis_code, {
+          code: a.nachweis_code,
+          bezeichnung: NACHWEIS_BEZEICHNUNG[a.nachweis_code],
+          pflicht: (vorhanden?.pflicht ?? false) || a.pflicht,
+        });
+      }
+    }
+    return [...codes.values()];
+  }, [gewaehlteKatalog, entwurf.wohnform, entwurf.bevollmaechtigt]);
+
+  // Default: noch nicht gesetzte Nachweise gelten als „vorhanden" (Demo-freundlich,
+  // Anwender kann gezielt auf „offen" stellen).
+  const istVorhanden = (code: string) => nachweisVorhanden[code] ?? true;
+  function toggleNachweis(code: string) {
+    setNachweisVorhanden((prev) => ({ ...prev, [code]: !istVorhanden(code) }));
+  }
+
+  // Vollständigkeitsprüfung über pruefeAntrag — aus dem aktuellen Entwurf konstruiert.
+  const pruefung = useMemo(() => {
+    // lokale Sicht auf den Nachweis-Status (Default „vorhanden") — hält die Memo-Deps schlank.
+    const vorhandenIn = (code: string) => nachweisVorhanden[code] ?? true;
+    const heute = new Date();
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const plus = (tage: number) => {
+      const d = new Date(heute);
+      d.setDate(d.getDate() + tage);
+      return iso(d);
+    };
+
+    const nachweise: ProjektNachweis[] = pflichtnachweise.map((n) => ({
+      code: n.code,
+      bezeichnung: n.bezeichnung,
+      pflicht: n.pflicht,
+      status: vorhandenIn(n.code) ? 'vorhanden' : 'offen',
+    }));
+
+    const projekt: Projekt = {
+      id: 'wizard-projekt',
+      projektnummer: '—',
+      standort_id: 'st-berlin',
+      kunde_id: 'wizard-kunde',
+      titel: 'Neuer Vorgang',
+      pipeline_status: 'antrag',
+      abtretung_aktiv: true,
+      massnahmen: gewaehlteKatalog.map((m) => ({
+        id: `wizard-${m.id}`,
+        massnahme_id: m.id,
+        bezeichnung: m.bezeichnung,
+        foerdertopf_id: m.foerdertopf_id,
+        vk_brutto: m.standard_vk_brutto,
+        ek_netto: m.standard_ek_netto,
+        foerderbetrag_beantragt: m.standard_vk_brutto,
+        raum: '—',
+        begruendung: fuelleBegruendung(
+          m.standard_begruendung,
+          entwurf.hauptdiagnose,
+          entwurf.pflegegrad,
+          entwurf.icd10_codes,
+        ),
+      })),
+      erstellt_am: heute.toISOString(),
+      geaendert_am: heute.toISOString(),
+    };
+
+    const antrag: Antrag = {
+      id: 'wizard-antrag',
+      antragsnummer: '—',
+      projekt_id: projekt.id,
+      foerdertopf_id: 'ft-40-4',
+      kasse: KASSEN.find((k) => k.id === entwurf.pflegekasse_id)?.name ?? '',
+      status: 'entwurf',
+      gestellt_am: iso(heute),
+      entscheidungsfrist: plus(21),
+      genehmigungsfiktion_ab: plus(21),
+      beantragter_betrag: erg.foerderBetrag,
+      geplanter_umsetzungsbeginn: plus(30),
+      nachweise,
+    };
+
+    const kunde: Kunde = {
+      ...DEMO_KUNDE,
+      id: 'wizard-kunde',
+      vorname: entwurf.vorname,
+      nachname: entwurf.nachname,
+      pflegegrad: entwurf.pflegegrad,
+      wohnform: entwurf.wohnform,
+      personen_mit_pflegegrad: entwurf.personen_mit_pflegegrad,
+      // DSGVO-Einwilligung folgt der Nachweis-Checkliste.
+      einwilligung_dsgvo: vorhandenIn('einwilligung_dsgvo'),
+    };
+
+    return pruefeAntrag({ antrag, projekt, kunde, dokumente: [], rechtsgrundlageVorhanden: true });
+  }, [pflichtnachweise, gewaehlteKatalog, entwurf, erg.foerderBetrag, nachweisVorhanden]);
+
+  // Pro Schritt: darf weiter geklickt werden?
+  const kannWeiter = (() => {
+    switch (schritt) {
+      case 0:
+        return (
+          entwurf.vorname.trim() !== '' &&
+          entwurf.nachname.trim() !== '' &&
+          entwurf.geburtsdatum.trim() !== '' &&
+          entwurf.strasse.trim() !== '' &&
+          entwurf.plz.trim() !== '' &&
+          entwurf.ort.trim() !== ''
+        );
+      case 2:
+        return entwurf.pflegekasse_id !== '';
+      case 3:
+        return ausgewaehlt.size > 0;
+      default:
+        return true;
+    }
+  })();
+
+  return (
+    <div>
+      <SeitenKopf
+        titel="Neuer Vorgang"
+        untertitel="Kernworkflow §40 Abs.4 SGB XI — von den Kundendaten bis zur 0-€-Zusammenfassung"
+        aktion={
+          <button
+            onClick={() => {
+              setEntwurf(demoEntwurf());
+              setAusgewaehlt(new Set(DEMO_MASSNAHME_IDS));
+              setNachweisVorhanden({});
+              setSchritt(0);
+            }}
+            className="rounded-xl border border-white/15 bg-elevated px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-hover hover:text-ink"
+          >
+            Demo zurücksetzen
+          </button>
+        }
+      />
+
+      <SchrittIndikator aktiv={schritt} onWechsel={setSchritt} />
+
+      <Card className="mt-6">
+        {schritt === 0 && <SchrittKunde entwurf={entwurf} setFeld={setFeld} />}
+        {schritt === 1 && (
+          <SchrittPflegegrad
+            wert={entwurf.pflegegrad}
+            onWahl={(pg) => setFeld('pflegegrad', pg)}
+          />
+        )}
+        {schritt === 2 && (
+          <SchrittPflegekasse
+            wert={entwurf.pflegekasse_id}
+            onWahl={(id) => setFeld('pflegekasse_id', id)}
+          />
+        )}
+        {schritt === 3 && (
+          <SchrittMassnahmen
+            massnahmen={verfuegbareMassnahmen}
+            ausgewaehlt={ausgewaehlt}
+            onToggle={toggleMassnahme}
+            pflegegrad={entwurf.pflegegrad}
+          />
+        )}
+        {schritt === 4 && (
+          <SchrittPruefung
+            nachweise={pflichtnachweise}
+            istVorhanden={istVorhanden}
+            onToggle={toggleNachweis}
+            punkte={pruefung.punkte}
+            bestanden={pruefung.bestanden}
+            fehler={pruefung.fehler}
+            warnungen={pruefung.warnungen}
+          />
+        )}
+        {schritt === 5 && (
+          <SchrittZusammenfassung
+            entwurf={entwurf}
+            gewaehlt={gewaehlteKatalog}
+            vkGesamt={erg.vkGesamt}
+            foerderBetrag={erg.foerderBetrag}
+            eigenanteil={erg.eigenanteil}
+            maxBudget={erg.maxBudget}
+            kasse={KASSEN.find((k) => k.id === entwurf.pflegekasse_id)?.name ?? '—'}
+            bestanden={pruefung.bestanden}
+          />
+        )}
+      </Card>
+
+      {/* Navigation */}
+      <div className="mt-6 flex items-center justify-between">
+        <button
+          onClick={() => setSchritt((s) => Math.max(0, s - 1))}
+          disabled={schritt === 0}
+          className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-elevated px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-hover hover:text-ink disabled:opacity-40"
+        >
+          <ChevronLeft className="h-4 w-4" /> Zurück
+        </button>
+
+        {schritt < SCHRITTE.length - 1 ? (
+          <button
+            onClick={() => setSchritt((s) => Math.min(SCHRITTE.length - 1, s + 1))}
+            disabled={!kannWeiter}
+            className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-[#0D1B2A] transition-opacity hover:opacity-90 disabled:opacity-40"
+          >
+            Weiter <ChevronRight className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            disabled={!pruefung.bestanden}
+            className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-[#0D1B2A] transition-opacity hover:opacity-90 disabled:opacity-40"
+            title={pruefung.bestanden ? undefined : 'Prüfung noch nicht bestanden'}
+          >
+            <Check className="h-4 w-4" /> Antrag stellen — {erg.eigenanteil === 0 ? '0 € für den Kunden' : euro(erg.eigenanteil)}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Schritt-Indikator (klickbare Stepper-Leiste) ---
+function SchrittIndikator({
+  aktiv,
+  onWechsel,
+}: {
+  aktiv: number;
+  onWechsel: (n: number) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {SCHRITTE.map((titel, i) => {
+        const erledigt = i < aktiv;
+        const jetzt = i === aktiv;
+        return (
+          <button
+            key={titel}
+            onClick={() => onWechsel(i)}
+            className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
+              jetzt
+                ? 'border-brand/50 bg-brand/15 text-brand'
+                : erledigt
+                  ? 'border-emerald-500/30 bg-card text-muted hover:text-ink'
+                  : 'border-white/10 bg-card text-faint hover:text-muted'
+            }`}
+          >
+            <span
+              className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+                jetzt
+                  ? 'bg-brand text-[#0D1B2A]'
+                  : erledigt
+                    ? 'bg-emerald-500/30 text-brand'
+                    : 'bg-elevated text-faint'
+              }`}
+            >
+              {erledigt ? <Check className="h-3.5 w-3.5" /> : i + 1}
+            </span>
+            <span className="hidden font-medium sm:inline">{titel}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// --- Schritt 1: Kundendaten ---
+function SchrittKunde({
+  entwurf,
+  setFeld,
+}: {
+  entwurf: KundeEntwurf;
+  setFeld: <K extends keyof KundeEntwurf>(key: K, wert: KundeEntwurf[K]) => void;
+}) {
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-ink">Kundendaten</h2>
+      <p className="mt-1 text-sm text-muted">Person und Anschrift des pflegebedürftigen Kunden.</p>
+      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Feld label="Vorname" wert={entwurf.vorname} onChange={(v) => setFeld('vorname', v)} />
+        <Feld label="Nachname" wert={entwurf.nachname} onChange={(v) => setFeld('nachname', v)} />
+        <Feld
+          label="Geburtsdatum"
+          type="date"
+          wert={entwurf.geburtsdatum}
+          onChange={(v) => setFeld('geburtsdatum', v)}
+        />
+        <Feld label="Straße & Nr." wert={entwurf.strasse} onChange={(v) => setFeld('strasse', v)} />
+        <Feld label="PLZ" wert={entwurf.plz} onChange={(v) => setFeld('plz', v)} />
+        <Feld label="Ort" wert={entwurf.ort} onChange={(v) => setFeld('ort', v)} />
+      </div>
+    </div>
+  );
+}
+
+function Feld({
+  label,
+  wert,
+  onChange,
+  type = 'text',
+}: {
+  label: string;
+  wert: string;
+  onChange: (v: string) => void;
+  type?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-muted">{label}</span>
+      <input
+        type={type}
+        value={wert}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl border border-white/10 bg-elevated px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+      />
+    </label>
+  );
+}
+
+// --- Schritt 2: Pflegegrad als Kacheln ---
+function SchrittPflegegrad({
+  wert,
+  onWahl,
+}: {
+  wert: Pflegegrad;
+  onWahl: (pg: Pflegegrad) => void;
+}) {
+  const grade: Pflegegrad[] = [1, 2, 3, 4, 5];
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-ink">Pflegegrad</h2>
+      <p className="mt-1 text-sm text-muted">
+        Ab PG 1 besteht Anspruch auf § 40 Abs. 4 SGB XI (über § 28a für PG 1).
+      </p>
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {grade.map((pg) => {
+          const sel = pg === wert;
+          return (
+            <button
+              key={pg}
+              onClick={() => onWahl(pg)}
+              className={`flex flex-col items-center gap-1 rounded-2xl border px-4 py-6 transition-all ${
+                sel
+                  ? 'border-brand/50 bg-brand/15'
+                  : 'border-white/10 bg-elevated hover:border-white/25'
+              }`}
+            >
+              <span className={`text-3xl font-bold ${sel ? 'text-brand' : 'text-ink'}`}>{pg}</span>
+              <span className="text-xs text-faint">Pflegegrad</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// --- Schritt 3: Pflegekasse (Dropdown aus KASSEN) ---
+function SchrittPflegekasse({
+  wert,
+  onWahl,
+}: {
+  wert: string;
+  onWahl: (id: string) => void;
+}) {
+  const kasse = KASSEN.find((k) => k.id === wert);
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-ink">Pflegekasse</h2>
+      <p className="mt-1 text-sm text-muted">Zuständige Kasse für die Antragstellung.</p>
+      <label className="mt-5 block max-w-md">
+        <span className="mb-1.5 block text-sm font-medium text-muted">Pflegekasse</span>
+        <select
+          value={wert}
+          onChange={(e) => onWahl(e.target.value)}
+          className="w-full rounded-xl border border-white/10 bg-elevated px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+        >
+          {KASSEN.filter((k) => k.aktiv).map((k) => (
+            <option key={k.id} value={k.id} className="bg-elevated">
+              {k.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {kasse && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Badge farbe={kasse.akzeptiert_abtretung ? 'brand' : 'warn'}>
+            {kasse.akzeptiert_abtretung ? 'Abtretung akzeptiert (0-€-Modell)' : 'Keine Abtretung'}
+          </Badge>
+          <Badge farbe="neutral">Frist {kasse.standard_frist_tage} Tage</Badge>
+          {kasse.ik_nummer && <Badge farbe="neutral">IK {kasse.ik_nummer}</Badge>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Schritt 4: Maßnahmen (gefiltert nach Pflegegrad) ---
+function SchrittMassnahmen({
+  massnahmen,
+  ausgewaehlt,
+  onToggle,
+  pflegegrad,
+}: {
+  massnahmen: typeof MASSNAHMEN_KATALOG;
+  ausgewaehlt: Set<string>;
+  onToggle: (id: string) => void;
+  pflegegrad: Pflegegrad;
+}) {
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-ink">Maßnahmen auswählen</h2>
+      <p className="mt-1 text-sm text-muted">
+        {massnahmen.length} Maßnahmen für Pflegegrad {pflegegrad} verfügbar — VK und
+        Bewilligungswahrscheinlichkeit je Maßnahme.
+      </p>
+      <div className="mt-5 space-y-2">
+        {massnahmen.map((m) => {
+          const sel = ausgewaehlt.has(m.id);
+          const w = m.genehmigungswahrscheinlichkeit
+            ? WAHRSCHEINLICHKEIT_META[m.genehmigungswahrscheinlichkeit]
+            : undefined;
+          return (
+            <button
+              key={m.id}
+              onClick={() => onToggle(m.id)}
+              className={`flex w-full items-center justify-between gap-3 rounded-xl border p-4 text-left transition-all ${
+                sel ? 'border-brand/40 bg-brand/10' : 'border-white/10 bg-elevated hover:border-white/25'
+              }`}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <div
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+                    sel ? 'border-brand bg-brand' : 'border-white/30'
+                  }`}
+                >
+                  {sel && <Check className="h-3.5 w-3.5 text-[#0D1B2A]" />}
+                </div>
+                <div className="min-w-0">
+                  <div className={`truncate text-sm font-semibold ${sel ? 'text-brand' : 'text-ink'}`}>
+                    {m.code} · {m.bezeichnung}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-faint">{paragraphLabel(m.foerdertopf_id)}</span>
+                    {w && <Badge farbe={w.farbe}>{w.label}</Badge>}
+                    {m.foerderfaehig_status === 'einzelfall' && (
+                      <Badge farbe="warn">Einzelfall</Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className={`text-sm font-bold ${sel ? 'text-brand' : 'text-ink'}`}>
+                  {euro(m.standard_vk_brutto)}
+                </div>
+                <div className="text-xs text-faint">VK brutto</div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// --- Schritt 5: Vollständigkeitsprüfung (Checkliste + pruefeAntrag) ---
+function SchrittPruefung({
+  nachweise,
+  istVorhanden,
+  onToggle,
+  punkte,
+  bestanden,
+  fehler,
+  warnungen,
+}: {
+  nachweise: { code: NachweisCode; bezeichnung: string; pflicht: boolean }[];
+  istVorhanden: (code: string) => boolean;
+  onToggle: (code: string) => void;
+  punkte: Pruefpunkt[];
+  bestanden: boolean;
+  fehler: number;
+  warnungen: number;
+}) {
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-ink">Vollständigkeitsprüfung</h2>
+      <p className="mt-1 text-sm text-muted">
+        Pflichtunterlagen abhaken — die Prüfung läuft live (Gate für „Antrag stellen").
+      </p>
+
+      <div className="mt-5 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Checkliste */}
+        <div>
+          <div className="mb-2 text-xs font-bold uppercase tracking-wider text-faint">
+            Pflichtunterlagen
+          </div>
+          <div className="space-y-2">
+            {nachweise.map((n) => {
+              const vorhanden = istVorhanden(n.code);
+              return (
+                <button
+                  key={n.code}
+                  onClick={() => onToggle(n.code)}
+                  className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-all ${
+                    vorhanden ? 'border-emerald-500/40 bg-brand/10' : 'border-white/10 bg-elevated'
+                  }`}
+                >
+                  <div
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+                      vorhanden ? 'border-brand bg-brand' : 'border-white/30'
+                    }`}
+                  >
+                    {vorhanden && <Check className="h-3.5 w-3.5 text-[#0D1B2A]" />}
+                  </div>
+                  <span className={`text-sm ${vorhanden ? 'text-ink' : 'text-muted'}`}>
+                    {n.bezeichnung}
+                  </span>
+                  {!n.pflicht && (
+                    <span className="ml-auto text-xs text-faint">optional</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Prüfergebnis */}
+        <div>
+          <div className="mb-2 text-xs font-bold uppercase tracking-wider text-faint">
+            Prüfergebnis
+          </div>
+          <div
+            className={`mb-3 rounded-xl border p-3 text-sm font-semibold ${
+              bestanden
+                ? 'border-emerald-500/40 bg-brand/10 text-brand'
+                : 'border-red-500/40 bg-red-500/10 text-danger'
+            }`}
+          >
+            {bestanden
+              ? '✓ Antrag vollständig — bereit zum Einreichen.'
+              : `${fehler} Fehler${warnungen ? `, ${warnungen} Warnung(en)` : ''} — bitte beheben.`}
+          </div>
+          <div className="space-y-1.5">
+            {punkte.map((p) => (
+              <div key={p.nr} className="flex items-start gap-2 text-sm">
+                <PruefIcon status={p.status} />
+                <div>
+                  <span className="font-medium text-ink">{p.titel}</span>
+                  <span className="text-muted"> — {p.meldung}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PruefIcon({ status }: { status: PruefStatus }) {
+  if (status === 'ok') return <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand" />;
+  if (status === 'warnung')
+    return <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" />;
+  return <X className="mt-0.5 h-4 w-4 shrink-0 text-danger" />;
+}
+
+// --- Schritt 6: Zusammenfassung ---
+function SchrittZusammenfassung({
+  entwurf,
+  gewaehlt,
+  vkGesamt,
+  foerderBetrag,
+  eigenanteil,
+  maxBudget,
+  kasse,
+  bestanden,
+}: {
+  entwurf: KundeEntwurf;
+  gewaehlt: typeof MASSNAHMEN_KATALOG;
+  vkGesamt: number;
+  foerderBetrag: number;
+  eigenanteil: number;
+  maxBudget: number;
+  kasse: string;
+  bestanden: boolean;
+}) {
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-ink">Zusammenfassung</h2>
+      <p className="mt-1 text-sm text-muted">
+        {entwurf.vorname} {entwurf.nachname} · PG {entwurf.pflegegrad} · {kasse}
+      </p>
+
+      <div className="mt-5 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Maßnahmenliste */}
+        <div>
+          <div className="mb-2 text-xs font-bold uppercase tracking-wider text-faint">
+            Gewählte Maßnahmen ({gewaehlt.length})
+          </div>
+          <div className="space-y-2">
+            {gewaehlt.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center justify-between rounded-xl border border-white/10 bg-elevated p-3"
+              >
+                <span className="text-sm text-ink">{m.bezeichnung}</span>
+                <span className="text-sm font-semibold text-ink">{euro(m.standard_vk_brutto)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Kundensicht — bewusst getrennt von interner Marge (CLAUDE.md §3.4) */}
+        <div>
+          <div className="rounded-2xl border border-emerald-500/30 bg-[#0A4028] p-5">
+            <div className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-300/70">
+              Kunden-Kalkulation
+            </div>
+            <Summenzeile label="Projektkosten (VK)" wert={euro(vkGesamt)} />
+            <Summenzeile label="§40-Förderung" wert={`−${euro(foerderBetrag)}`} farbe="brand" />
+            <div className="mt-2 flex items-center justify-between border-t border-white/10 pt-2">
+              <span className="font-bold text-ink">Eigenanteil Kunde</span>
+              <span className={`text-xl font-bold ${eigenanteil === 0 ? 'text-brand' : 'text-warn'}`}>
+                {eigenanteil === 0 ? '0 € ✓' : euro(eigenanteil)}
+              </span>
+            </div>
+            <div className="mt-2 text-xs text-emerald-300/60">
+              Max. Förderbudget §40 Abs.4: {euro(maxBudget)}
+            </div>
+          </div>
+
+          <div
+            className={`mt-4 rounded-xl border p-3 text-sm font-semibold ${
+              bestanden
+                ? 'border-emerald-500/40 bg-brand/10 text-brand'
+                : 'border-amber-500/40 bg-amber-500/10 text-warn'
+            }`}
+          >
+            {bestanden
+              ? '✓ Vollständigkeitsprüfung bestanden — Antrag kann gestellt werden.'
+              : '⚠ Prüfung noch offen — Schritt 5 abschließen.'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Summenzeile({
+  label,
+  wert,
+  farbe = 'ink',
+}: {
+  label: string;
+  wert: string;
+  farbe?: 'ink' | 'brand';
+}) {
+  return (
+    <div className="flex justify-between py-0.5 text-sm">
+      <span className="text-muted">{label}</span>
+      <span className={`font-semibold ${farbe === 'brand' ? 'text-brand' : 'text-ink'}`}>{wert}</span>
+    </div>
+  );
+}

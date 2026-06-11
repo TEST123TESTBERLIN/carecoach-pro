@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
+  Wand2,
   Calculator,
   FileText,
   LogOut,
@@ -20,6 +21,7 @@ interface NavEintrag {
 
 const NAV: NavEintrag[] = [
   { pfad: '/', label: 'Dashboard', Icon: LayoutDashboard },
+  { pfad: '/workflow', label: 'Neuer Vorgang', Icon: Wand2 },
   { pfad: '/kunden', label: 'Kunden', Icon: Users },
   { pfad: '/foerderrechner', label: 'Förderrechner', Icon: Calculator },
   { pfad: '/dokumente', label: 'Dokumente', Icon: FileText },
