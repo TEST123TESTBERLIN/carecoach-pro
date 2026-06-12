@@ -24,6 +24,7 @@ import type {
   Widerspruchsgrund,
   DokumentVorlage,
   DokumentKategorie,
+  Unternehmen,
 } from '@/domain/types';
 
 export type ProjektEingabe = Omit<Projekt, 'id' | 'erstellt_am' | 'geaendert_am'>;
@@ -100,6 +101,12 @@ export interface StammdatenRepository {
   dokumentVorlage(id: string): DokumentVorlage | undefined;
 }
 
+// Eigene Unternehmensdaten (Singleton — genau ein Datensatz).
+export interface UnternehmenRepository {
+  get(): Unternehmen;
+  update(input: Unternehmen): Unternehmen;
+}
+
 // Aggregierter Zugang — eine Instanz pro App.
 export interface CareCoachRepository {
   kunden: KundeRepository;
@@ -109,6 +116,7 @@ export interface CareCoachRepository {
   pflegeunternehmen: PflegeunternehmenRepository;
   dienstleister: DienstleisterRepository;
   stammdaten: StammdatenRepository;
+  unternehmen: UnternehmenRepository;
 }
 
 // Eindeutige ID (Browser-API mit Fallback).

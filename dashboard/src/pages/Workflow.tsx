@@ -1,5 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight, AlertTriangle, X, FileText, Plus } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  AlertTriangle,
+  X,
+  FileText,
+  Plus,
+} from 'lucide-react';
 import { Card, SeitenKopf, Badge } from '@/components/ui';
 import type { BadgeFarbe } from '@/lib/kundenStatus';
 import { berechneFoerderung, euro } from '@/lib/foerderung';
@@ -8,8 +17,14 @@ import type { Massnahme } from '@/types';
 import {
   MASSNAHMEN_KATALOG,
   NACHWEIS_BEZEICHNUNG,
+  GLOBALE_NACHWEISE,
 } from '@/domain/seed';
-import { KASSEN, NACHWEIS_ANFORDERUNGEN } from '@/domain/stammdatenSeed';
+import {
+  KASSEN,
+  NACHWEIS_ANFORDERUNGEN,
+  ABLEHNUNGSGRUENDE,
+  WIDERSPRUCHSGRUENDE,
+} from '@/domain/stammdatenSeed';
 import { pruefeAntrag, type Pruefpunkt, type PruefStatus } from '@/domain/pruefung';
 import { DEMO_KUNDE, DEMO_PROJEKT } from '@/domain/demoData';
 import { baueAbtretungserklaerungHtml } from '@/documents/abtretungserklaerung';
@@ -776,6 +791,18 @@ function SchrittMassnahmen({
   wohnform: Wohnform;
   kalk: Kalk;
 }) {
+  // Aufgeklappte Genehmigungsassistenten (pro Maßnahme).
+  const [assistentOffen, setAssistentOffen] = useState<Set<string>>(new Set());
+
+  function toggleAssistent(id: string) {
+    setAssistentOffen((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+
   return (
     <div>
       <h2 className="text-lg font-bold text-ink">Maßnahmen auswählen</h2>
@@ -788,55 +815,73 @@ function SchrittMassnahmen({
         <div className="space-y-2 lg:col-span-2">
           {massnahmen.map((m) => {
             const sel = ausgewaehlt.has(m.id);
+            const offen = assistentOffen.has(m.id);
             const w = m.genehmigungswahrscheinlichkeit
               ? WAHRSCHEINLICHKEIT_META[m.genehmigungswahrscheinlichkeit]
               : undefined;
             const warnungen = massnahmeWarnungen(m, wohnform);
             return (
-              <button
+              <div
                 key={m.id}
-                onClick={() => onToggle(m.id)}
-                className={`flex w-full items-center justify-between gap-3 rounded-xl border p-4 text-left transition-all ${
+                className={`rounded-xl border transition-all ${
                   sel ? 'border-brand/40 bg-brand/10' : 'border-white/10 bg-elevated hover:border-white/25'
                 }`}
               >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div
-                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
-                      sel ? 'border-brand bg-brand' : 'border-white/30'
-                    }`}
+                <div className="flex items-center justify-between gap-3 p-4">
+                  <button
+                    onClick={() => onToggle(m.id)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
                   >
-                    {sel && <Check className="h-3.5 w-3.5 text-[#0D1B2A]" />}
-                  </div>
-                  <div className="min-w-0">
-                    <div className={`truncate text-sm font-semibold ${sel ? 'text-brand' : 'text-ink'}`}>
-                      {m.code} · {m.bezeichnung}
+                    <div
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+                        sel ? 'border-brand bg-brand' : 'border-white/30'
+                      }`}
+                    >
+                      {sel && <Check className="h-3.5 w-3.5 text-[#0D1B2A]" />}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      <span className="rounded-md bg-base/60 px-1.5 py-0.5 text-xs text-faint">
-                        {paragraphLabel(m.foerdertopf_id)}
-                      </span>
-                      {w && <Badge farbe={w.farbe}>{w.label}</Badge>}
-                      {warnungen.map((warn) => (
-                        <span
-                          key={warn.icon}
-                          title={warn.text}
-                          className="cursor-help text-sm leading-none"
-                          aria-label={warn.text}
-                        >
-                          {warn.icon}
+                    <div className="min-w-0">
+                      <div className={`truncate text-sm font-semibold ${sel ? 'text-brand' : 'text-ink'}`}>
+                        {m.code} · {m.bezeichnung}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <span className="rounded-md bg-base/60 px-1.5 py-0.5 text-xs text-faint">
+                          {paragraphLabel(m.foerdertopf_id)}
                         </span>
-                      ))}
+                        {w && <Badge farbe={w.farbe}>{w.label}</Badge>}
+                        {warnungen.map((warn) => (
+                          <span
+                            key={warn.icon}
+                            title={warn.text}
+                            className="cursor-help text-sm leading-none"
+                            aria-label={warn.text}
+                          >
+                            {warn.icon}
+                          </span>
+                        ))}
+                      </div>
                     </div>
+                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <div className="text-right">
+                      <div className={`text-sm font-bold ${sel ? 'text-brand' : 'text-ink'}`}>
+                        {euro(m.standard_vk_brutto)}
+                      </div>
+                      <div className="text-xs text-faint">VK brutto</div>
+                    </div>
+                    <button
+                      onClick={() => toggleAssistent(m.id)}
+                      title="Genehmigungsassistent (Begründung, Unterlagen, Ablehnung/Widerspruch)"
+                      aria-expanded={offen}
+                      className="rounded-lg p-1.5 text-faint transition-colors hover:bg-hover hover:text-ink"
+                    >
+                      <ChevronDown
+                        className={`h-5 w-5 transition-transform ${offen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
                   </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <div className={`text-sm font-bold ${sel ? 'text-brand' : 'text-ink'}`}>
-                    {euro(m.standard_vk_brutto)}
-                  </div>
-                  <div className="text-xs text-faint">VK brutto</div>
-                </div>
-              </button>
+                {offen && <GenehmigungsAssistent massnahme={m} />}
+              </div>
             );
           })}
         </div>
@@ -849,6 +894,97 @@ function SchrittMassnahmen({
 
       {/* Zusammenfassung nach Fördertopf (vor „Weiter") */}
       <ToepfeZusammenfassung kalk={kalk} />
+    </div>
+  );
+}
+
+// --- Genehmigungsassistent: rendert die vorhandenen Katalog-Felder einer
+// Maßnahme (Standardbegründung, Pflichtunterlagen, typische Ablehnungs- und
+// Widerspruchsgründe) als Aufklapp-Bereich. Keine neuen Inhalte — reine Sicht
+// auf die Seed-Daten. ---
+function GenehmigungsAssistent({ massnahme }: { massnahme: KatalogEintrag }) {
+  // Pflichtunterlagen: globales §40-Profil + maßnahmenspezifische Zusatznachweise.
+  const unterlagen = [
+    ...GLOBALE_NACHWEISE.map((n) => n.bezeichnung),
+    ...massnahme.zusatz_nachweise.map((code) => NACHWEIS_BEZEICHNUNG[code]),
+  ];
+  const ablehnungen = ABLEHNUNGSGRUENDE.filter((a) =>
+    (massnahme.typische_ablehnungsgrund_ids ?? []).includes(a.id),
+  );
+  // Widerspruchsgründe: direkt verknüpfte + über die Ablehnungsgründe verlinkte.
+  const widerspruchIds = new Set([
+    ...(massnahme.typische_widerspruchsgrund_ids ?? []),
+    ...ablehnungen.flatMap((a) => a.widerspruchsgrund_ids),
+  ]);
+  const widersprueche = WIDERSPRUCHSGRUENDE.filter((w) => widerspruchIds.has(w.id));
+
+  return (
+    <div className="space-y-4 border-t border-white/10 px-4 py-4">
+      {/* Standardbegründung */}
+      <div>
+        <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-faint">
+          Standardbegründung
+        </div>
+        <p className="rounded-lg bg-base/50 px-3 py-2 text-sm italic text-muted">
+          {massnahme.standard_begruendung}
+        </p>
+      </div>
+
+      {/* Pflichtunterlagen */}
+      <div>
+        <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-faint">
+          Pflichtunterlagen
+        </div>
+        <ul className="space-y-1">
+          {unterlagen.map((u) => (
+            <li key={u} className="flex items-start gap-2 text-sm text-muted">
+              <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" />
+              {u}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Typische Ablehnungsgründe */}
+      {ablehnungen.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-faint">
+            Typische Ablehnungsgründe
+          </div>
+          <div className="space-y-1.5">
+            {ablehnungen.map((a) => (
+              <div key={a.id} className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-semibold text-warn">{a.bezeichnung}</span>
+                  <Badge farbe="neutral">{a.haeufigkeit}</Badge>
+                </div>
+                <p className="mt-1 text-xs text-muted">{a.beschreibung}</p>
+                <p className="mt-1 text-xs text-faint">
+                  <span className="font-semibold">Empfohlene Reaktion:</span>{' '}
+                  {a.empfohlene_reaktion}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Widerspruchsgründe */}
+      {widersprueche.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-xs font-bold uppercase tracking-wider text-faint">
+            Widerspruchsgründe (bei Ablehnung)
+          </div>
+          <div className="space-y-1.5">
+            {widersprueche.map((wg) => (
+              <div key={wg.id} className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2">
+                <div className="text-sm font-semibold text-blue-400">{wg.bezeichnung}</div>
+                <p className="mt-1 text-xs text-muted">{wg.argumentation}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

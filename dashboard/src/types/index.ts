@@ -25,6 +25,24 @@ export interface AmbulantePflege {
   telefon: string;
 }
 
+// Kategorien für Kundennotizen (Kontakt-Historie).
+export type NotizKategorie =
+  | 'telefonat'
+  | 'hausbesuch'
+  | 'pflegekasse'
+  | 'angehoerige'
+  | 'handwerker'
+  | 'intern';
+
+// Einzelne Notiz am Kunden — Autor und Zeitstempel werden automatisch gesetzt.
+export interface KundenNotiz {
+  id: string;
+  kategorie: NotizKategorie;
+  text: string;
+  autor: string;
+  zeitpunkt: string; // ISO
+}
+
 export interface Klient {
   id: string;
   // Person
@@ -49,6 +67,8 @@ export interface Klient {
   // Anzahl Personen mit Pflegegrad im Haushalt (Förder-Multiplikator, max. 4).
   // Optional — Standard 1, wird im Förderrechner verwendet.
   personen_mit_pflegegrad?: number;
+  // Chronologische Notiz-Historie (neueste zuerst).
+  notizen?: KundenNotiz[];
 }
 
 // Eingabedaten für Anlegen/Bearbeiten (ohne generierte id).

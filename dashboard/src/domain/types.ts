@@ -516,6 +516,32 @@ export interface DokumentVorlage {
 }
 
 // ---------------------------------------------------------------------------
+// Eigenes Unternehmen (Stammdaten für Dokumente/Briefkopf)
+// ---------------------------------------------------------------------------
+
+export interface UnternehmenBank {
+  bank_name: string;
+  iban: string;
+  bic: string;
+}
+
+export interface Unternehmen {
+  firmenname: string;
+  strasse: string;
+  plz: string;
+  ort: string;
+  telefon: string;
+  email: string;
+  website: string;
+  geschaeftsfuehrer: string;
+  handelsregister: string; // z. B. "HRB 123456 B, Amtsgericht Charlottenburg"
+  ust_id: string;
+  bank: UnternehmenBank;
+  // Logo als Daten-URL (Base64) — leer = kein Logo hinterlegt.
+  logo_data_url: string;
+}
+
+// ---------------------------------------------------------------------------
 // Eingabetypen (ohne generierte/abgeleitete Felder) für Anlegen/Bearbeiten
 // ---------------------------------------------------------------------------
 

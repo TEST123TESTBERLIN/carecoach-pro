@@ -1,10 +1,25 @@
 import { useState, useMemo } from 'react';
-import { Search, Plus, Pencil, Trash2, UserPlus } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, UserPlus, MessageSquare } from 'lucide-react';
 import { Card, SeitenKopf, KlientStatusBadge, Badge, Modal } from '@/components/ui';
 import KundeForm from '@/components/KundeForm';
 import { useKunden } from '@/context/KundenContext';
-import { KUNDEN_STATUS } from '@/lib/kundenStatus';
-import type { Klient, KlientStatus, KlientEingabe } from '@/types';
+import { useAuth } from '@/context/AuthContext';
+import { KUNDEN_STATUS, type BadgeFarbe } from '@/lib/kundenStatus';
+import type { Klient, KlientStatus, KlientEingabe, KundenNotiz, NotizKategorie } from '@/types';
+
+// Kategorien der Kundennotizen mit Anzeige-Label und Badge-Farbe.
+const NOTIZ_KATEGORIEN: { wert: NotizKategorie; label: string; farbe: BadgeFarbe }[] = [
+  { wert: 'telefonat', label: 'Telefonat', farbe: 'blau' },
+  { wert: 'hausbesuch', label: 'Hausbesuch', farbe: 'brand' },
+  { wert: 'pflegekasse', label: 'Pflegekasse', farbe: 'warn' },
+  { wert: 'angehoerige', label: 'Angehörige', farbe: 'violett' },
+  { wert: 'handwerker', label: 'Handwerker', farbe: 'danger' },
+  { wert: 'intern', label: 'Intern', farbe: 'neutral' },
+];
+
+function notizKategorieMeta(kategorie: NotizKategorie) {
+  return NOTIZ_KATEGORIEN.find((k) => k.wert === kategorie) ?? NOTIZ_KATEGORIEN[5];
+}
 
 type Filter = 'alle' | KlientStatus;
 
@@ -16,6 +31,8 @@ export default function Kunden() {
   // Formular: null = geschlossen, 'neu' = anlegen, Klient = bearbeiten
   const [formZustand, setFormZustand] = useState<'zu' | 'neu' | Klient>('zu');
   const [loeschKandidat, setLoeschKandidat] = useState<Klient | null>(null);
+  // Kunde, dessen Notizen gerade geöffnet sind (per ID, damit der Modal live aktualisiert).
+  const [notizKundeId, setNotizKundeId] = useState<string | null>(null);
 
   const gefiltert = useMemo(() => {
     const q = suche.trim().toLowerCase();
@@ -121,6 +138,18 @@ export default function Kunden() {
                 <td className="px-5 py-3">
                   <div className="flex justify-end gap-1.5">
                     <button
+                      onClick={() => setNotizKundeId(k.id)}
+                      title={`Notizen (${k.notizen?.length ?? 0})`}
+                      className="relative rounded-lg p-2 text-muted transition-colors hover:bg-hover hover:text-ink"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      {(k.notizen?.length ?? 0) > 0 && (
+                        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-bold text-[#0D1B2A]">
+                          {k.notizen?.length}
+                        </span>
+                      )}
+                    </button>
+                    <button
                       onClick={() => setFormZustand(k)}
                       title="Bearbeiten"
                       className="rounded-lg p-2 text-muted transition-colors hover:bg-hover hover:text-ink"
@@ -173,6 +202,11 @@ export default function Kunden() {
         />
       )}
 
+      {/* Notizen-Modal */}
+      {notizKundeId && (
+        <NotizenModal kundeId={notizKundeId} onClose={() => setNotizKundeId(null)} />
+      )}
+
       {/* Lösch-Bestätigung */}
       {loeschKandidat && (
         <Modal
@@ -205,6 +239,112 @@ export default function Kunden() {
         </Modal>
       )}
     </div>
+  );
+}
+
+// Notiz-Historie eines Kunden: Kategorie + Text erfassen, Autor und
+// Zeitstempel automatisch, Anzeige chronologisch (neueste zuerst).
+function NotizenModal({ kundeId, onClose }: { kundeId: string; onClose: () => void }) {
+  const { getKunde, updateKunde } = useKunden();
+  const { benutzer } = useAuth();
+  const [kategorie, setKategorie] = useState<NotizKategorie>('telefonat');
+  const [text, setText] = useState('');
+
+  const kunde = getKunde(kundeId);
+  if (!kunde) return null;
+
+  const notizen = [...(kunde.notizen ?? [])].sort(
+    (a, b) => b.zeitpunkt.localeCompare(a.zeitpunkt),
+  );
+
+  function hinzufuegen() {
+    if (!kunde) return;
+    const inhalt = text.trim();
+    if (!inhalt) return;
+    const neu: KundenNotiz = {
+      id:
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `n_${Date.now().toString(36)}`,
+      kategorie,
+      text: inhalt,
+      autor: benutzer?.name ?? '—',
+      zeitpunkt: new Date().toISOString(),
+    };
+    updateKunde(kunde.id, { ...kunde, notizen: [neu, ...(kunde.notizen ?? [])] });
+    setText('');
+  }
+
+  return (
+    <Modal titel={`Notizen — ${kunde.vorname} ${kunde.nachname}`} onClose={onClose}>
+      {/* Erfassung */}
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {NOTIZ_KATEGORIEN.map((k) => (
+          <button
+            key={k.wert}
+            onClick={() => setKategorie(k.wert)}
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+              kategorie === k.wert
+                ? 'border-brand/50 bg-brand/15 text-brand'
+                : 'border-white/10 bg-elevated text-muted hover:text-ink'
+            }`}
+          >
+            {k.label}
+          </button>
+        ))}
+      </div>
+      <div className="mb-5 flex gap-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter speichert, Shift+Enter macht einen Zeilenumbruch.
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              hinzufuegen();
+            }
+          }}
+          rows={2}
+          placeholder="Notiz eingeben — Enter speichert…"
+          className="flex-1 resize-y rounded-xl border border-white/10 bg-elevated px-3 py-2.5 text-sm text-ink outline-none placeholder:text-faint focus:border-brand"
+        />
+        <button
+          onClick={hinzufuegen}
+          disabled={text.trim() === ''}
+          className="self-start rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-[#0D1B2A] transition-opacity hover:opacity-90 disabled:opacity-40"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Historie */}
+      {notizen.length === 0 ? (
+        <p className="py-6 text-center text-sm text-faint">Noch keine Notizen vorhanden.</p>
+      ) : (
+        <div className="space-y-2">
+          {notizen.map((n) => {
+            const meta = notizKategorieMeta(n.kategorie);
+            return (
+              <div key={n.id} className="rounded-xl border border-white/10 bg-elevated p-3">
+                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <Badge farbe={meta.farbe}>{meta.label}</Badge>
+                    <span className="font-semibold text-muted">{n.autor}</span>
+                  </div>
+                  <span className="text-faint">
+                    {new Date(n.zeitpunkt).toLocaleString('de-DE', {
+                      dateStyle: 'short',
+                      timeStyle: 'short',
+                    })}
+                  </span>
+                </div>
+                <div className="whitespace-pre-wrap text-sm text-ink">{n.text}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Modal>
   );
 }
 

@@ -12,6 +12,7 @@ import type {
   PflegeunternehmenEingabe,
   Dienstleister,
   DienstleisterEingabe,
+  Unternehmen,
 } from '@/domain/types';
 import {
   STANDORTE,
@@ -39,6 +40,7 @@ import {
   type PflegeunternehmenRepository,
   type DienstleisterRepository,
   type StammdatenRepository,
+  type UnternehmenRepository,
   type ProjektEingabe,
   type AntragEingabe,
   neueId,
@@ -51,6 +53,7 @@ const KEYS = {
   kassen: 'ccpro_v1_kassen',
   pflegeunternehmen: 'ccpro_v1_pflegeunternehmen',
   dienstleister: 'ccpro_v1_dienstleister',
+  unternehmen: 'ccpro_v1_unternehmen',
 } as const;
 
 // --- LocalStorage-Hilfen ---
@@ -271,6 +274,52 @@ function dienstleisterRepo(): DienstleisterRepository {
   };
 }
 
+// --- Eigenes Unternehmen (Singleton mit Defaults: GLJ Germany GmbH) ---
+export const UNTERNEHMEN_DEFAULTS: Unternehmen = {
+  firmenname: 'GLJ Germany GmbH',
+  strasse: 'Reichsstraße 107',
+  plz: '14052',
+  ort: 'Berlin',
+  telefon: '',
+  email: '',
+  website: '',
+  geschaeftsfuehrer: '',
+  handelsregister: '',
+  ust_id: '',
+  bank: { bank_name: '', iban: '', bic: '' },
+  logo_data_url: '',
+};
+
+function ladeUnternehmen(): Unternehmen {
+  try {
+    const roh = localStorage.getItem(KEYS.unternehmen);
+    if (roh) {
+      const daten = JSON.parse(roh) as Partial<Unternehmen>;
+      // Defaults mergen — neue Felder bleiben bei Altbeständen befüllt.
+      return {
+        ...UNTERNEHMEN_DEFAULTS,
+        ...daten,
+        bank: { ...UNTERNEHMEN_DEFAULTS.bank, ...(daten.bank ?? {}) },
+      };
+    }
+  } catch {
+    // beschädigte Daten ignorieren
+  }
+  return UNTERNEHMEN_DEFAULTS;
+}
+
+function unternehmenRepo(): UnternehmenRepository {
+  let cache = ladeUnternehmen();
+  return {
+    get: () => cache,
+    update: (input: Unternehmen) => {
+      cache = input;
+      localStorage.setItem(KEYS.unternehmen, JSON.stringify(cache));
+      return cache;
+    },
+  };
+}
+
 // --- Stammdaten/Kataloge (read-only aus Seed) ---
 function stammdatenRepo(): StammdatenRepository {
   return {
@@ -304,5 +353,14 @@ export function createLocalStorageRepository(): CareCoachRepository {
     pflegeunternehmen: pflegeunternehmenRepo(),
     dienstleister: dienstleisterRepo(),
     stammdaten: stammdatenRepo(),
+    unternehmen: unternehmenRepo(),
   };
+}
+
+// App-weite Singleton-Instanz (LocalStorage-Backend, MVP).
+export const repository: CareCoachRepository = createLocalStorageRepository();
+
+// Komfort-Zugriff für Dokument-Templates (Briefkopf, Zessionar, Bankverbindung).
+export function getUnternehmen(): Unternehmen {
+  return repository.unternehmen.get();
 }

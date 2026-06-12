@@ -5,6 +5,7 @@ import {
   Wand2,
   Calculator,
   FileText,
+  Settings,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
@@ -25,6 +26,7 @@ const NAV: NavEintrag[] = [
   { pfad: '/kunden', label: 'Kunden', Icon: Users },
   { pfad: '/foerderrechner', label: 'Förderrechner', Icon: Calculator },
   { pfad: '/dokumente', label: 'Dokumente', Icon: FileText },
+  { pfad: '/einstellungen', label: 'Einstellungen', Icon: Settings },
 ];
 
 interface SidebarProps {
@@ -40,8 +42,14 @@ export default function Sidebar({ eingeklappt, onToggleEinklappen, onNavigate }:
 
   return (
     <div className="flex h-full flex-col bg-panel">
-      {/* Logo / Markenkopf + Einklapp-Schalter */}
-      <div className="flex items-center gap-2 px-4 py-5">
+      {/* Logo / Markenkopf + Einklapp-Schalter.
+          Eingeklappt (w-16): vertikal gestapelt, sonst ragt der Schalter aus der
+          Sidebar heraus und ist nicht mehr klickbar (Bug: Ausklappen unmöglich). */}
+      <div
+        className={`flex py-5 ${
+          eingeklappt ? 'flex-col items-center gap-3 px-2' : 'items-center gap-2 px-4'
+        }`}
+      >
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-base font-bold text-[#0D1B2A]">
           CC
         </div>

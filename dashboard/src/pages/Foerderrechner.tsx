@@ -1,30 +1,71 @@
-import { useState, useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { Check } from 'lucide-react';
 import { Card, SeitenKopf, Badge } from '@/components/ui';
-import { MASSNAHMEN } from '@/data/mockData';
-import { useKunden } from '@/context/KundenContext';
-import { berechneFoerderung, euro, FOERDERBETRAG_PRO_TRAEGER } from '@/lib/foerderung';
+import { MASSNAHMEN_KATALOG } from '@/domain/seed';
+import type { Pflegegrad } from '@/domain/types';
+import type { Massnahme } from '@/types';
+import {
+  berechneFoerderung,
+  euro,
+  FOERDERBETRAG_PRO_TRAEGER,
+  MAX_TRAEGER,
+} from '@/lib/foerderung';
 
-// Förderrechner: Maßnahmen wählen → §40-Förderung, Eigenanteil (Kundensicht)
-// und interne Marge (Admin-Sicht) werden getrennt dargestellt.
+// Förderrechner: Pflegegrad + Personen mit PG wählen, Maßnahmen aus dem
+// Katalog kombinieren. §40-Abs.4-Maßnahmen zählen gegen den Haushalts-Deckel
+// (4.180 € × Personen, max. 16.720 €); §33-SGB-V-Hilfsmittel laufen über die
+// GKV-Verordnung und belasten das §40-Budget nicht. Kundensicht und interne
+// Marge bleiben strikt getrennte Panels.
+
+type KatalogEintrag = (typeof MASSNAHMEN_KATALOG)[number];
+
+// Katalog-Maßnahme → Adapter für die zentrale Förder-Logik (lib/foerderung).
+function alsMassnahme(m: KatalogEintrag): Massnahme {
+  return {
+    id: m.id,
+    bezeichnung: m.bezeichnung,
+    paragraph: m.foerdertopf_id === 'ft-33-sgbv' ? '§ 33 SGB V' : '§ 40 Abs. 4 SGB XI',
+    vk_brutto: m.standard_vk_brutto,
+    ek_netto: m.standard_ek_netto,
+  };
+}
+
 export default function Foerderrechner() {
-  const { kunden } = useKunden();
-  const [klientId, setKlientId] = useState(kunden[0]?.id ?? '');
-  const [ausgewaehlt, setAusgewaehlt] = useState<Set<string>>(new Set(['m1']));
+  const [pflegegrad, setPflegegrad] = useState<Pflegegrad>(3);
+  const [personen, setPersonen] = useState(1); // Personen mit PG im Haushalt (1–4)
+  const [ausgewaehlt, setAusgewaehlt] = useState<Set<string>>(new Set());
 
-  const klient = kunden.find((k) => k.id === klientId) ?? kunden[0];
-  // Ohne B2B-Provisionsvertrag wird hier keine Provision angesetzt.
-  const provisionProzent = 0;
-  const traeger = klient?.personen_mit_pflegegrad ?? 1;
-
-  const gewaehlteMassnahmen = useMemo(
-    () => MASSNAHMEN.filter((m) => ausgewaehlt.has(m.id)),
-    [ausgewaehlt],
+  // Nur Maßnahmen, deren Pflegegrad-Voraussetzung erfüllt ist.
+  const verfuegbar = useMemo(
+    () =>
+      MASSNAHMEN_KATALOG.filter(
+        (m) => m.aktiv && (m.pflegegrad_voraussetzung ?? 1) <= pflegegrad,
+      ),
+    [pflegegrad],
   );
 
-  const erg = useMemo(
-    () => berechneFoerderung(gewaehlteMassnahmen, traeger, provisionProzent),
-    [gewaehlteMassnahmen, traeger, provisionProzent],
+  const gewaehlt = useMemo(
+    () => verfuegbar.filter((m) => ausgewaehlt.has(m.id)),
+    [verfuegbar, ausgewaehlt],
   );
+
+  // Topf-getrennte Kalkulation: §40 gegen den Deckel, §33 separat (GKV).
+  const kalk = useMemo(() => {
+    const m40 = gewaehlt.filter((m) => m.foerdertopf_id !== 'ft-33-sgbv');
+    const m33 = gewaehlt.filter((m) => m.foerdertopf_id === 'ft-33-sgbv');
+    const e40 = berechneFoerderung(m40.map(alsMassnahme), personen, 0);
+    const vk33 = m33.reduce((s, m) => s + m.standard_vk_brutto, 0);
+    const ek33 = m33.reduce((s, m) => s + m.standard_ek_netto, 0);
+    return {
+      ...e40,
+      vk33,
+      gesamtkosten: e40.vkGesamt + vk33,
+      rest: Math.max(0, e40.maxBudget - e40.foerderBetrag),
+      // Interne Sicht über alle Töpfe hinweg.
+      ekAlle: e40.ekGesamt + ek33,
+      rohertragAlle: e40.vkGesamt + vk33 - (e40.ekGesamt + ek33),
+    };
+  }, [gewaehlt, personen]);
 
   function toggle(id: string) {
     setAusgewaehlt((prev) => {
@@ -36,9 +77,9 @@ export default function Foerderrechner() {
   }
 
   const barFarbe =
-    erg.budgetAuslastungProzent > 90
+    kalk.budgetAuslastungProzent > 90
       ? '#FF6B6B'
-      : erg.budgetAuslastungProzent > 70
+      : kalk.budgetAuslastungProzent > 70
         ? '#F5A623'
         : '#2ECC8A';
 
@@ -46,88 +87,130 @@ export default function Foerderrechner() {
     <div>
       <SeitenKopf
         titel="Förderrechner"
-        untertitel="§40 Abs.4 SGB XI — Maßnahmen kombinieren und Eigenanteil berechnen"
+        untertitel="§40 Abs.4 SGB XI — Maßnahmen kombinieren, Budget und Eigenanteil live berechnen"
       />
 
-      {/* Kundenauswahl */}
+      {/* Parameter: Pflegegrad + Personen mit PG */}
       <Card className="mb-6 !p-5">
-        <div className="flex flex-wrap items-center gap-4">
-          <label className="text-sm font-medium text-muted">Kunde</label>
-          <select
-            value={klientId}
-            onChange={(e) => setKlientId(e.target.value)}
-            className="rounded-xl border border-white/10 bg-elevated px-3 py-2 text-sm text-ink outline-none focus:border-brand"
-          >
-            {kunden.map((k) => (
-              <option key={k.id} value={k.id} className="bg-elevated">
-                {k.vorname} {k.nachname} · PG {k.pflegegrad}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+          <div>
+            <div className="mb-1.5 text-sm font-medium text-muted">Pflegegrad</div>
+            <div className="flex gap-1.5">
+              {([1, 2, 3, 4, 5] as Pflegegrad[]).map((pg) => (
+                <button
+                  key={pg}
+                  onClick={() => setPflegegrad(pg)}
+                  className={`h-10 w-10 rounded-xl border text-sm font-bold transition-all ${
+                    pg === pflegegrad
+                      ? 'border-brand/50 bg-brand/15 text-brand'
+                      : 'border-white/10 bg-elevated text-muted hover:border-white/25'
+                  }`}
+                >
+                  {pg}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="mb-1.5 text-sm font-medium text-muted">
+              Personen mit Pflegegrad im Haushalt
+            </div>
+            <div className="flex gap-1.5">
+              {[1, 2, 3, 4].map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPersonen(p)}
+                  className={`h-10 w-10 rounded-xl border text-sm font-bold transition-all ${
+                    p === personen
+                      ? 'border-brand/50 bg-brand/15 text-brand'
+                      : 'border-white/10 bg-elevated text-muted hover:border-white/25'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
           <Badge farbe="brand">
-            {traeger}× Träger → max. {euro(traeger * FOERDERBETRAG_PRO_TRAEGER)}
+            Budget: {personen}× {euro(FOERDERBETRAG_PRO_TRAEGER)} ={' '}
+            {euro(Math.min(personen, MAX_TRAEGER) * FOERDERBETRAG_PRO_TRAEGER)}
           </Badge>
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Maßnahmen-Auswahl */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
+        {/* Maßnahmen-Auswahl (Katalog, gefiltert nach Pflegegrad) */}
         <div className="space-y-2 lg:col-span-2">
-          {MASSNAHMEN.map((m) => {
+          {verfuegbar.map((m) => {
             const sel = ausgewaehlt.has(m.id);
-            const marge = m.vk_brutto - m.ek_netto;
-            const margePct = Math.round((marge / m.vk_brutto) * 100);
+            const ist33 = m.foerdertopf_id === 'ft-33-sgbv';
             return (
               <button
                 key={m.id}
                 onClick={() => toggle(m.id)}
-                className={`flex w-full items-center justify-between rounded-xl border p-4 text-left transition-all ${
+                className={`flex w-full items-center justify-between gap-3 rounded-xl border p-4 text-left transition-all ${
                   sel
                     ? 'border-emerald-500/40 bg-brand/10'
                     : 'border-white/10 bg-card hover:border-white/25'
                 }`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <div
-                    className={`flex h-5 w-5 items-center justify-center rounded border ${
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
                       sel ? 'border-brand bg-brand' : 'border-white/30'
                     }`}
                   >
-                    {sel && <span className="text-xs font-bold text-[#0D1B2A]">✓</span>}
+                    {sel && <Check className="h-3.5 w-3.5 text-[#0D1B2A]" />}
                   </div>
-                  <div>
-                    <div className={`text-sm font-semibold ${sel ? 'text-brand' : 'text-ink'}`}>
+                  <div className="min-w-0">
+                    <div
+                      className={`truncate text-sm font-semibold ${sel ? 'text-brand' : 'text-ink'}`}
+                    >
                       {m.bezeichnung}
                     </div>
-                    <div className="mt-0.5 text-xs text-faint">{m.paragraph}</div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-faint">
+                      <span>{ist33 ? '§ 33 SGB V' : '§ 40 Abs. 4 SGB XI'}</span>
+                      {ist33 && (
+                        <span
+                          title="Hilfsmittel über Arztverordnung (GKV) — belastet das §40-Budget nicht"
+                          className="cursor-help"
+                        >
+                          🏥 ohne §40-Budget
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <div className="text-right">
+                <div className="shrink-0 text-right">
                   <div className={`text-sm font-bold ${sel ? 'text-brand' : 'text-ink'}`}>
-                    {euro(m.vk_brutto)}
+                    {euro(m.standard_vk_brutto)}
                   </div>
-                  <div className="text-xs text-brand">
-                    +{euro(marge)} ({margePct}%)
-                  </div>
+                  <div className="text-xs text-faint">VK brutto</div>
                 </div>
               </button>
             );
           })}
         </div>
 
-        {/* Ergebnis-Spalte */}
-        <div className="space-y-4">
-          {/* Budget-Balken */}
+        {/* Live-Ergebnis */}
+        <div className="space-y-4 lg:sticky lg:top-6">
+          {/* Budget-Balken §40 */}
           <Card className="!p-5">
             <div className="mb-1.5 flex justify-between text-xs text-faint">
-              <span>Budget genutzt: {euro(erg.foerderBetrag)}</span>
-              <span>Max: {euro(erg.maxBudget)}</span>
+              <span>
+                Auslastung: {Math.round(kalk.budgetAuslastungProzent)}{' '}%
+              </span>
+              <span>Budget: {euro(kalk.maxBudget)}</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-base">
               <div
                 className="h-full rounded-full transition-all duration-500"
-                style={{ width: `${erg.budgetAuslastungProzent}%`, backgroundColor: barFarbe }}
+                style={{ width: `${kalk.budgetAuslastungProzent}%`, backgroundColor: barFarbe }}
               />
+            </div>
+            <div className="mt-2 flex justify-between text-xs">
+              <span className="text-muted">Rest-Budget §40</span>
+              <span className="font-semibold text-ink">{euro(kalk.rest)}</span>
             </div>
           </Card>
 
@@ -136,16 +219,19 @@ export default function Foerderrechner() {
             <div className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-300/70">
               Kunden-Kalkulation
             </div>
-            <Zeile label="Projektkosten" wert={euro(erg.vkGesamt)} />
-            <Zeile label="§40-Förderung" wert={`−${euro(erg.foerderBetrag)}`} farbe="brand" />
+            <Zeile label="Gesamtkosten" wert={euro(kalk.gesamtkosten)} />
+            <Zeile label="§40-Förderung" wert={`−${euro(kalk.foerderBetrag)}`} farbe="brand" />
+            {kalk.vk33 > 0 && (
+              <Zeile label="§33 GKV (über Arzt)" wert={`−${euro(kalk.vk33)}`} farbe="brand" />
+            )}
             <div className="mt-2 flex items-center justify-between border-t border-white/10 pt-2">
               <span className="font-bold text-ink">Eigenanteil Kunde</span>
               <span
                 className={`text-lg font-bold ${
-                  erg.eigenanteil === 0 ? 'text-brand' : 'text-warn'
+                  kalk.eigenanteil === 0 ? 'text-brand' : 'text-warn'
                 }`}
               >
-                {erg.eigenanteil === 0 ? '0 € ✓' : euro(erg.eigenanteil)}
+                {kalk.eigenanteil === 0 ? '0 € ✓' : euro(kalk.eigenanteil)}
               </span>
             </div>
           </div>
@@ -155,22 +241,19 @@ export default function Foerderrechner() {
             <div className="mb-3 text-xs font-bold uppercase tracking-wider text-faint">
               Interne Kalkulation
             </div>
-            <Zeile label="VK gesamt" wert={euro(erg.vkGesamt)} />
-            <Zeile label="EK gesamt" wert={`−${euro(erg.ekGesamt)}`} farbe="danger" />
-            {erg.provision > 0 && (
-              <Zeile label="Provision PD" wert={`−${euro(erg.provision)}`} farbe="warn" />
-            )}
+            <Zeile label="VK gesamt" wert={euro(kalk.gesamtkosten)} />
+            <Zeile label="EK gesamt" wert={`−${euro(kalk.ekAlle)}`} farbe="danger" />
             <div className="mt-2 flex items-center justify-between border-t border-white/10 pt-2">
-              <span className="font-bold text-ink">Nettoertrag</span>
-              <span className="text-lg font-bold text-brand">{euro(erg.nettoertrag)}</span>
+              <span className="font-bold text-ink">Rohertrag</span>
+              <span className="text-lg font-bold text-brand">{euro(kalk.rohertragAlle)}</span>
             </div>
           </div>
 
           <button
-            disabled={gewaehlteMassnahmen.length === 0}
+            disabled={gewaehlt.length === 0}
             className="w-full rounded-xl bg-brand py-3 text-sm font-bold text-[#0D1B2A] transition-opacity hover:opacity-90 disabled:opacity-40"
           >
-            {erg.eigenanteil === 0 ? 'Antrag stellen — 0 € für den Kunden' : 'Weiter → Antrag'}
+            {kalk.eigenanteil === 0 ? 'Antrag stellen — 0 € für den Kunden' : 'Weiter → Antrag'}
           </button>
         </div>
       </div>

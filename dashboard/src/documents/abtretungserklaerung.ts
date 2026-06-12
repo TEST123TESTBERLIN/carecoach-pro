@@ -3,12 +3,13 @@
 // direkt an die CareCoach Pro GmbH; der Versicherte hat keinen Eigenanteil.
 
 import { dokumentSeite, escapeHtml, euroFmt } from './html';
+import { getUnternehmen } from '@/services/localStorageRepository';
 
-// Zessionar (Abtretungsempfänger) — fester Geschäftspartner.
-export const ZESSIONAR = {
-  name: 'CareCoach Pro GmbH',
-  anschrift: 'Musterstraße 1, 10115 Berlin',
-} as const;
+// Zessionar (Abtretungsempfänger) — aus den Unternehmens-Einstellungen.
+function zessionar(): { name: string; anschrift: string } {
+  const u = getUnternehmen();
+  return { name: u.firmenname, anschrift: `${u.strasse}, ${u.plz} ${u.ort}` };
+}
 
 export interface AbtretungMassnahme {
   bezeichnung: string;
@@ -33,6 +34,7 @@ export interface AbtretungDaten {
 
 // Erzeugt die vollständige Abtretungserklärung als druckbare HTML-Seite.
 export function baueAbtretungserklaerungHtml(daten: AbtretungDaten): string {
+  const ZESSIONAR = zessionar();
   const summe = daten.massnahmen.reduce((s, m) => s + m.betrag, 0);
   const ort = daten.ort ?? '';
   const datum = daten.datum ?? '';
@@ -80,8 +82,8 @@ export function baueAbtretungserklaerungHtml(daten: AbtretungDaten): string {
   Abtretung an. Die Pflegekasse wird angewiesen und ermächtigt, den bewilligten Betrag mit befreiender
   Wirkung unmittelbar an die ${escapeHtml(ZESSIONAR.name)} auszuzahlen.</p>
 
-  <div class="box hinweis"><strong>Hinweis:</strong> Die Pflegekasse zahlt direkt an CareCoach Pro.
-  Der Versicherte hat keinen Eigenanteil.</div>
+  <div class="box hinweis"><strong>Hinweis:</strong> Die Pflegekasse zahlt direkt an die
+  ${escapeHtml(ZESSIONAR.name)}. Der Versicherte hat keinen Eigenanteil.</div>
 
   <div class="sig">
     <div><div class="sigline">${escapeHtml(ort)}${ort ? ', ' : ''}${escapeHtml(datum)} &nbsp;—&nbsp; Ort, Datum</div></div>
