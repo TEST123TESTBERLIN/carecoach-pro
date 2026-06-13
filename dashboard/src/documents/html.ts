@@ -25,7 +25,44 @@ export function euroFmt(betrag: number): string {
   });
 }
 
-// Rahmen-Dokument mit dezenter, druckfreundlicher CSS.
+// Optionale Briefkopf-Daten für neue Dokumente (kein Import nötig — plain object).
+export interface KopfzeileOptionen {
+  firmenname: string;
+  strasse: string;
+  plz: string;
+  ort: string;
+  telefon?: string;
+  email?: string;
+  handelsregister?: string;
+  logo_data_url?: string;
+}
+
+// Erzeugt den Briefkopf-HTML-Block (Firmenname, Adresse, Logo).
+// Wird von den neuen Dokument-Templates genutzt; als Inline-Styles,
+// damit er unabhängig vom CSS in dokumentSeite funktioniert.
+export function baueKopfzeile(opts: KopfzeileOptionen): string {
+  const logo = opts.logo_data_url
+    ? `<img src="${opts.logo_data_url}" alt="Logo" style="max-height:56px;max-width:180px;object-fit:contain;flex-shrink:0" />`
+    : '';
+  const kontaktTeile = [
+    opts.telefon && `Tel.: ${escapeHtml(opts.telefon)}`,
+    opts.email && escapeHtml(opts.email),
+    opts.handelsregister && escapeHtml(opts.handelsregister),
+  ].filter(Boolean);
+  const kontakt = kontaktTeile.join(' &nbsp;·&nbsp; ');
+
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+  <div>
+    <div style="font-size:18px;font-weight:700;color:#111;letter-spacing:-0.3px">${escapeHtml(opts.firmenname)}</div>
+    <div style="font-size:12px;color:#555;margin-top:3px">${escapeHtml(opts.strasse)} · ${escapeHtml(opts.plz)} ${escapeHtml(opts.ort)}</div>
+    ${kontakt ? `<div style="font-size:12px;color:#555;margin-top:2px">${kontakt}</div>` : ''}
+  </div>
+  ${logo}
+</div>
+<hr style="border:none;border-top:2px solid #1a1a1a;margin:0 0 22px" />`;
+}
+
+// Rahmen-Dokument mit dezenter, druckfreundlicher CSS (DIN A4).
 export function dokumentSeite(titel: string, inhalt: string): string {
   return `<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><title>${escapeHtml(titel)}</title>
@@ -52,7 +89,13 @@ export function dokumentSeite(titel: string, inhalt: string): string {
   .check .ja { color: #047857; font-weight: 600; }
   .check .nein { color: #9ca3af; }
   .check .hint { color: #6b7280; font-size: 12px; }
-  @media print { body { padding: 0; } .noprint { display: none; } }
+  @page { size: A4; margin: 20mm 20mm 25mm 20mm; }
+  @media print {
+    body { padding: 0; max-width: none; }
+    .noprint { display: none; }
+    h2 { page-break-after: avoid; }
+    table, .box, .sig { page-break-inside: avoid; }
+  }
 </style></head>
 <body>${inhalt}
 <p class="noprint meta" style="margin-top:32px">Erstellt mit CareCoach Pro · Drucken bzw. „Als PDF speichern" über das Druckmenü des Browsers.</p>

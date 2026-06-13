@@ -8,6 +8,7 @@ import {
   X,
   FileText,
   Plus,
+  Printer,
 } from 'lucide-react';
 import { Card, SeitenKopf, Badge } from '@/components/ui';
 import type { BadgeFarbe } from '@/lib/kundenStatus';
@@ -29,6 +30,10 @@ import { pruefeAntrag, type Pruefpunkt, type PruefStatus } from '@/domain/pruefu
 import { DEMO_KUNDE, DEMO_PROJEKT } from '@/domain/demoData';
 import { baueAbtretungserklaerungHtml } from '@/documents/abtretungserklaerung';
 import { baueAntragHtml, baueAntragCheckliste } from '@/documents/antrag';
+import { baueVollmachtHtml } from '@/documents/vollmacht';
+import { baueDsgvoHtml } from '@/documents/dsgvo';
+import { baueAnschreibenHtml } from '@/documents/anschreiben';
+import { baueAnlageChecklisteHtml } from '@/documents/anlageCheckliste';
 import type {
   Pflegegrad,
   Wohnform,
@@ -185,6 +190,8 @@ export default function Workflow() {
   const [besonderheiten, setBesonderheiten] = useState('');
   const [notizen, setNotizen] = useState<VorgangsNotiz[]>([]);
   const [notizText, setNotizText] = useState('');
+  // Datum, an dem erstmals Dokumente für diesen Vorgang erzeugt wurden.
+  const [dokErstelltAm, setDokErstelltAm] = useState<string | null>(null);
 
   function notizHinzufuegen() {
     const text = notizText.trim();
@@ -257,6 +264,108 @@ export default function Workflow() {
           bevollmaechtigt: entwurf.bevollmaechtigt,
         }),
         beantragter_betrag: kalk.foerder40,
+      }),
+    );
+  }
+
+  function anschreibenOeffnen() {
+    const kasseObj = KASSEN.find((k) => k.id === entwurf.pflegekasse_id);
+    const anlagen = [
+      'Antrag auf Wohnumfeldverbesserung nach § 40 Abs. 4 SGB XI',
+      'Ärztliches Attest mit ICD-10-Diagnose',
+      'Kostenvoranschlag mit Einzelpositionen',
+      'Abtretungserklärung nach § 398 BGB',
+      'DSGVO-Einwilligung',
+      ...(entwurf.bevollmaechtigt ? ['Vollmacht des Bevollmächtigten'] : []),
+      ...(entwurf.wohnform === 'miete' ? ['Vermieterzustimmung der Hausverwaltung'] : []),
+      `Fotos Ist-Zustand (${gewaehlteKatalog.length} Maßnahmen)`,
+      'Anlagen-Checkliste',
+    ];
+    oeffneDokument(
+      baueAnschreibenHtml({
+        kasse: {
+          name: kasseObj?.name ?? '',
+          postanschrift_antraege: kasseObj?.postanschrift_antraege ?? '',
+          ik_nummer: kasseObj?.ik_nummer ?? '',
+        },
+        versicherter: {
+          name: `${entwurf.vorname} ${entwurf.nachname}`,
+          anschrift: `${entwurf.strasse}, ${entwurf.plz} ${entwurf.ort}`,
+          versichertennummer: DEMO_KUNDE.versichertennummer,
+          pflegegrad: entwurf.pflegegrad,
+        },
+        beantragter_betrag: kalk.foerder40,
+        anlagen,
+        ort: entwurf.ort,
+        datum: new Date().toLocaleDateString('de-DE'),
+      }),
+    );
+  }
+
+  function vollmachtOeffnen() {
+    const kasseObj = KASSEN.find((k) => k.id === entwurf.pflegekasse_id);
+    oeffneDokument(
+      baueVollmachtHtml({
+        versicherter: {
+          name: `${entwurf.vorname} ${entwurf.nachname}`,
+          geburtsdatum: entwurf.geburtsdatum,
+          anschrift: `${entwurf.strasse}, ${entwurf.plz} ${entwurf.ort}`,
+          versichertennummer: DEMO_KUNDE.versichertennummer,
+          pflegegrad: entwurf.pflegegrad,
+        },
+        bevollmaechtigter: {
+          name: DEMO_KUNDE.angehoeriger.name,
+          beziehung: DEMO_KUNDE.angehoeriger.beziehung,
+        },
+        pflegekasse: { name: kasseObj?.name ?? '' },
+        ort: entwurf.ort,
+        datum: new Date().toLocaleDateString('de-DE'),
+      }),
+    );
+  }
+
+  function dsgvoOeffnen() {
+    const kasseObj = KASSEN.find((k) => k.id === entwurf.pflegekasse_id);
+    oeffneDokument(
+      baueDsgvoHtml({
+        versicherter: {
+          name: `${entwurf.vorname} ${entwurf.nachname}`,
+          anschrift: `${entwurf.strasse}, ${entwurf.plz} ${entwurf.ort}`,
+        },
+        pflegekasse: { name: kasseObj?.name ?? '' },
+        bevollmaechtigter: entwurf.bevollmaechtigt
+          ? { name: DEMO_KUNDE.angehoeriger.name }
+          : undefined,
+        ort: entwurf.ort,
+        datum: new Date().toLocaleDateString('de-DE'),
+      }),
+    );
+  }
+
+  function checklisteOeffnen() {
+    const kasseObj = KASSEN.find((k) => k.id === entwurf.pflegekasse_id);
+    oeffneDokument(
+      baueAnlageChecklisteHtml({
+        versicherter: {
+          name: `${entwurf.vorname} ${entwurf.nachname}`,
+          pflegegrad: entwurf.pflegegrad,
+        },
+        pflegekasse: { name: kasseObj?.name ?? '' },
+        massnahmen: gewaehlteKatalog.map((m) => ({
+          bezeichnung: m.bezeichnung,
+          raum:
+            m.kategorie === 'bad'
+              ? 'Bad'
+              : m.kategorie === 'treppen_lift'
+                ? 'Treppe'
+                : m.kategorie === 'tueren'
+                  ? 'Tür/Eingang'
+                  : 'Wohnung',
+          kategorie: m.kategorie,
+        })),
+        wohnform: entwurf.wohnform,
+        bevollmaechtigt: entwurf.bevollmaechtigt,
+        datum: new Date().toLocaleDateString('de-DE'),
       }),
     );
   }
@@ -518,25 +627,60 @@ export default function Workflow() {
               bestanden={pruefung.bestanden}
             />
 
-            {/* Dokumente generieren (Browser-Druck → PDF) */}
+            {/* Dokumente erstellen — 6 druckfertige Dokumente für den Antrag */}
             <div className="border-t border-white/10 pt-5">
-              <div className="mb-3 text-xs font-bold uppercase tracking-wider text-faint">
-                Dokumente
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={antragOeffnen}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-elevated px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-hover"
-                >
-                  <FileText className="h-4 w-4 text-brand" /> Antrag + Checkliste
-                </button>
-                <button
-                  onClick={abtretungOeffnen}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-elevated px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-hover"
-                >
-                  <FileText className="h-4 w-4 text-brand" /> Abtretungserklärung § 398
-                </button>
-              </div>
+              <DokumentePaket
+                karten={[
+                  {
+                    id: 'anschreiben',
+                    titel: 'Anschreiben an Pflegekasse',
+                    beschreibung: `${KASSEN.find((k) => k.id === entwurf.pflegekasse_id)?.name ?? '—'} · inkl. Hinweis auf 3-Wochen-Frist & Genehmigungsfiktion`,
+                    verfuegbar: true,
+                    oeffnen: anschreibenOeffnen,
+                  },
+                  {
+                    id: 'antrag',
+                    titel: 'Antrag § 40 Abs. 4 SGB XI + Nachweis-Checkliste',
+                    beschreibung: `${gewaehlteKatalog.length} Maßnahmen · beantragter Zuschuss: ${euro(kalk.foerder40)}`,
+                    verfuegbar: true,
+                    oeffnen: antragOeffnen,
+                  },
+                  {
+                    id: 'abtretung',
+                    titel: 'Abtretungserklärung § 398 BGB',
+                    beschreibung: '0-€-Modell — Pflegekasse zahlt direkt an CareCoach Pro',
+                    verfuegbar: true,
+                    oeffnen: abtretungOeffnen,
+                  },
+                  {
+                    id: 'vollmacht',
+                    titel: 'Vollmacht Angehörige',
+                    beschreibung: entwurf.bevollmaechtigt
+                      ? `Bevollmächtigte/r: ${DEMO_KUNDE.angehoeriger.name}`
+                      : 'Kein Bevollmächtigter angegeben (Schritt 1)',
+                    verfuegbar: entwurf.bevollmaechtigt,
+                    oeffnen: vollmachtOeffnen,
+                  },
+                  {
+                    id: 'dsgvo',
+                    titel: 'DSGVO-Einwilligung',
+                    beschreibung: 'Einwilligung zur Verarbeitung von Gesundheitsdaten (Art. 9 DSGVO)',
+                    verfuegbar: true,
+                    oeffnen: dsgvoOeffnen,
+                  },
+                  {
+                    id: 'checkliste',
+                    titel: 'Anlagen-Checkliste',
+                    beschreibung: `Dynamische Ablage-Checkliste für ${gewaehlteKatalog.length} Maßnahmen`,
+                    verfuegbar: true,
+                    oeffnen: checklisteOeffnen,
+                  },
+                ]}
+                dokErstelltAm={dokErstelltAm}
+                onDokumentOeffnen={() =>
+                  setDokErstelltAm((prev) => prev ?? new Date().toLocaleDateString('de-DE'))
+                }
+              />
             </div>
 
             {/* Interne Notizen — nur für Admins sichtbar */}
@@ -1283,6 +1427,78 @@ function Summenzeile({
     <div className="flex justify-between py-0.5 text-sm">
       <span className="text-muted">{label}</span>
       <span className={`font-semibold ${farbe === 'brand' ? 'text-brand' : 'text-ink'}`}>{wert}</span>
+    </div>
+  );
+}
+
+// --- Dokumente-Paket: Auswahlliste + Druckbuttons für alle 6 Dokumente ---
+
+interface DokumentKarte {
+  id: string;
+  titel: string;
+  beschreibung: string;
+  verfuegbar: boolean;
+  oeffnen: () => void;
+}
+
+function DokumentePaket({
+  karten,
+  dokErstelltAm,
+  onDokumentOeffnen,
+}: {
+  karten: DokumentKarte[];
+  dokErstelltAm: string | null;
+  onDokumentOeffnen: () => void;
+}) {
+  const verfuegbar = karten.filter((k) => k.verfuegbar);
+
+  function handleOeffnen(k: DokumentKarte) {
+    k.oeffnen();
+    onDokumentOeffnen();
+  }
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-xs font-bold uppercase tracking-wider text-faint">
+          Dokumente ({verfuegbar.length} verfügbar)
+        </div>
+        {dokErstelltAm && (
+          <span className="rounded-full bg-brand/15 px-3 py-1 text-xs font-semibold text-brand">
+            ✓ erstellt am {dokErstelltAm}
+          </span>
+        )}
+      </div>
+      <div className="space-y-2">
+        {karten.map((k) => (
+          <div
+            key={k.id}
+            className={`flex items-center justify-between gap-3 rounded-xl border p-3 transition-opacity ${
+              k.verfuegbar ? 'border-white/10 bg-elevated' : 'border-white/5 bg-elevated opacity-40'
+            }`}
+          >
+            <div className="flex min-w-0 items-start gap-3">
+              <FileText className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-ink">{k.titel}</div>
+                <div className="truncate text-xs text-muted">{k.beschreibung}</div>
+              </div>
+            </div>
+            <button
+              onClick={() => handleOeffnen(k)}
+              disabled={!k.verfuegbar}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 bg-elevated px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Printer className="h-3.5 w-3.5 text-brand" /> Drucken
+            </button>
+          </div>
+        ))}
+      </div>
+      {!dokErstelltAm && (
+        <p className="mt-3 text-xs text-faint">
+          Dokumente werden im Browser als neue Tabs geöffnet → „Als PDF speichern" oder drucken.
+        </p>
+      )}
     </div>
   );
 }
