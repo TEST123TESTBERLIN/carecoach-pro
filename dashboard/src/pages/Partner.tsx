@@ -629,13 +629,13 @@ export default function PartnerSeite() {
             </select>
           )}
 
-          <select className={select} value={filterP72} onChange={(e) => setFilterP72(e.target.value as 'alle' | 'ja' | 'nein')}>
+          <select className={select} value={filterP72} onChange={(e) => { setFilterP72(e.target.value as 'alle' | 'ja' | 'nein'); setSortSpalte('name'); setSortRichtung('asc'); }}>
             <option value="alle">§72 alle</option>
             <option value="ja">§72 ja</option>
             <option value="nein">§72 nein</option>
           </select>
 
-          <select className={select} value={filterKoop} onChange={(e) => setFilterKoop(e.target.value as KooperationsStatus | 'alle')}>
+          <select className={select} value={filterKoop} onChange={(e) => { setFilterKoop(e.target.value as KooperationsStatus | 'alle'); setSortSpalte('name'); setSortRichtung('asc'); }}>
             <option value="alle">Alle Kooperationen</option>
             {(['Offen', 'Kontaktiert', 'Partner', 'Inaktiv'] as KooperationsStatus[]).map((v) => (
               <option key={v} value={v}>{v}</option>
@@ -652,7 +652,7 @@ export default function PartnerSeite() {
           return (
             <button
               key={tab.key}
-              onClick={() => setTabAktiv(tab.key)}
+              onClick={() => { setTabAktiv(tab.key); setSortSpalte('name'); setSortRichtung('asc'); }}
               className={`shrink-0 rounded-t-lg px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap border-b-2 -mb-px ${
                 aktiv
                   ? 'border-brand text-brand'
