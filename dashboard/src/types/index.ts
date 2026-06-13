@@ -55,6 +55,7 @@ export interface Klient {
   // Pflege & Kasse
   pflegegrad: Pflegegrad;
   krankenkasse: string;
+  versicherungsnummer: string;
   krankenkasse_ansprechpartner: string;
   // Kontakt
   telefon: string;

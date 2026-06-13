@@ -5,6 +5,7 @@ import {
   repository,
   UNTERNEHMEN_DEFAULTS,
 } from '@/services/localStorageRepository';
+import { PARTNER_STORAGE_KEY } from '@/services/partnerRepository';
 import type { Unternehmen } from '@/domain/types';
 
 // Einstellungen — Stammdaten des eigenen Unternehmens (Briefkopf, Zessionar,
@@ -54,6 +55,11 @@ export default function Einstellungen() {
     setU(UNTERNEHMEN_DEFAULTS);
     repository.unternehmen.update(UNTERNEHMEN_DEFAULTS);
     setGespeichert(true);
+  }
+
+  function partnerDatenZuruecksetzen() {
+    localStorage.removeItem(PARTNER_STORAGE_KEY);
+    window.location.reload();
   }
 
   // Logo als Daten-URL einlesen (bleibt komplett im Browser/LocalStorage).
@@ -206,6 +212,25 @@ export default function Einstellungen() {
             />
             <Feld label="IBAN" wert={u.bank.iban} onChange={(v) => setBankFeld('iban', v)} />
             <Feld label="BIC" wert={u.bank.bic} onChange={(v) => setBankFeld('bic', v)} />
+          </div>
+        </Card>
+
+        {/* Daten zurücksetzen */}
+        <Card className="lg:col-span-2">
+          <Abschnitt titel="Daten" />
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-ink">Partnerdaten zurücksetzen</p>
+              <p className="text-xs text-faint mt-1">
+                Löscht den Partner-Cache im Browser und lädt alle 46 Seed-Einträge (inkl. Kassen) neu. Manuell angelegte Partner gehen verloren.
+              </p>
+            </div>
+            <button
+              onClick={partnerDatenZuruecksetzen}
+              className="ml-6 shrink-0 inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm font-medium text-danger transition-colors hover:bg-red-500/20"
+            >
+              <Trash2 className="h-4 w-4" /> Partnerdaten zurücksetzen
+            </button>
           </div>
         </Card>
 

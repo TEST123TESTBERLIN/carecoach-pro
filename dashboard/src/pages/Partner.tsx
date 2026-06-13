@@ -617,13 +617,13 @@ export default function PartnerSeite() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <select className={select} value={filterBundesland} onChange={(e) => setFilterBundesland(e.target.value as PartnerBundesland | 'alle')}>
+          <select className={select} value={filterBundesland} onChange={(e) => { setFilterBundesland(e.target.value as PartnerBundesland | 'alle'); setSortSpalte('name'); setSortRichtung('asc'); }}>
             <option value="alle">Alle Bundesländer</option>
             {Object.entries(BUNDESLAND_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
 
           {bezirke.length > 0 && (
-            <select className={select} value={filterBezirk} onChange={(e) => setFilterBezirk(e.target.value)}>
+            <select className={select} value={filterBezirk} onChange={(e) => { setFilterBezirk(e.target.value); setSortSpalte('name'); setSortRichtung('asc'); }}>
               <option value="">Alle Bezirke</option>
               {bezirke.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>

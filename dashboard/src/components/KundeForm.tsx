@@ -12,6 +12,7 @@ const LEER: KlientEingabe = {
   ort: '',
   pflegegrad: 1,
   krankenkasse: '',
+  versicherungsnummer: '',
   krankenkasse_ansprechpartner: '',
   telefon: '',
   email: '',
@@ -56,6 +57,7 @@ export default function KundeForm({ initial, onAbbrechen, onSpeichern }: Props) 
     const neu: Record<string, string> = {};
     if (!daten.vorname.trim()) neu.vorname = 'Pflichtfeld';
     if (!daten.nachname.trim()) neu.nachname = 'Pflichtfeld';
+    if (!daten.versicherungsnummer.trim()) neu.versicherungsnummer = 'Pflichtfeld';
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (daten.email && !emailRegex.test(daten.email)) neu.email = 'Ungültige E-Mail';
     setFehler(neu);
@@ -146,6 +148,9 @@ export default function KundeForm({ initial, onAbbrechen, onSpeichern }: Props) 
           </Feld>
           <Feld label="Krankenkasse">
             <Input wert={daten.krankenkasse} onChange={(v) => setFeld('krankenkasse', v)} />
+          </Feld>
+          <Feld label="Versicherungsnummer" fehler={fehler.versicherungsnummer}>
+            <Input wert={daten.versicherungsnummer} onChange={(v) => setFeld('versicherungsnummer', v)} />
           </Feld>
           <Feld label="Ansprechpartner Krankenkasse">
             <Input
