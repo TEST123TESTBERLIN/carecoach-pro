@@ -265,6 +265,8 @@ export interface MassnahmeKatalog {
   pflegegrad_voraussetzung?: number;
   // Erfahrungsbasierte Bewilligungswahrscheinlichkeit bei der Pflegekasse.
   genehmigungswahrscheinlichkeit?: Genehmigungswahrscheinlichkeit;
+  // Pflichtfotos, die vor Antragstellung aufgenommen werden müssen (Ist-Zustand).
+  pflichtfotos?: string[];
   aktiv: boolean;
 }
 
@@ -549,3 +551,67 @@ export type KundeEingabe = Omit<Kunde, 'id' | 'erstellt_am' | 'geaendert_am'>;
 export type PflegeunternehmenEingabe = Omit<Pflegeunternehmen, 'id' | 'erstellt_am' | 'geaendert_am'>;
 export type KasseEingabe = Omit<Kasse, 'id'>;
 export type DienstleisterEingabe = Omit<Dienstleister, 'id'>;
+
+// ---------------------------------------------------------------------------
+// Fotoverwaltung (IndexedDB — Blobs + Metadaten)
+// ---------------------------------------------------------------------------
+
+export type FotoKategorie =
+  | 'bad'
+  | 'wc'
+  | 'dusche'
+  | 'badewanne'
+  | 'flur'
+  | 'treppe'
+  | 'eingang'
+  | 'schlafzimmer'
+  | 'kueche'
+  | 'sonstiges';
+
+export interface FotoMetadaten {
+  id: string;
+  kundeId: string;
+  kategorie: FotoKategorie;
+  // Optionale Verknüpfung zu einem Katalogeintrag (MassnahmeKatalog.code).
+  massnahmeCode?: string;
+  vorherNachher: 'vorher' | 'nachher';
+  zeitstempel: string; // ISO
+  // Freier Text — bei gewähltem Pflichtfoto-Slot wird dieser vorausgefüllt.
+  beschreibung: string;
+  groesse_bytes: number;
+  breite_px?: number;
+  hoehe_px?: number;
+}
+
+// Phase 2: Automatisch generierte Grundriss-Skizze (noch nicht implementiert).
+export interface SkizzenAnhang {
+  id: string;
+  kundeId: string;
+  raumBezeichnung: string;
+  erzeugtAm: string; // ISO
+  svg_data?: string;
+  massstaab?: string; // z. B. "1:50"
+  quellFotoIds: string[];
+}
+
+// Phase 3: Ergebnis der KI-Barrierenerkennung (noch nicht implementiert).
+export interface KIBarriere {
+  id: string;
+  typ: string;
+  raum: string;
+  prioritaet: 'hoch' | 'mittel' | 'niedrig';
+  din18040_ref?: string;
+  massnahmeCode?: string;
+  beschreibung: string;
+}
+
+export interface KIAnalyseErgebnis {
+  id: string;
+  kundeId: string;
+  fotoIds: string[];
+  analysiertAm: string; // ISO
+  modell: string; // z. B. "claude-opus-4-8"
+  erkannteBarrieren: KIBarriere[];
+  empfehlungen: string[];
+  konfidenz: number; // 0–1
+}

@@ -320,6 +320,10 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     ],
     zusatz_nachweise: [],
     benoetigte_gewerke: ['sanitaer'],
+    pflichtfotos: [
+      'WC-Bereich Ist-Zustand (frontal)',
+      'Wandbeschaffenheit Montagepunkt (Seitenansicht)',
+    ],
     aktiv: true,
   }),
   baue({
@@ -344,6 +348,10 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     ],
     zusatz_nachweise: [],
     benoetigte_gewerke: ['metallbau', 'schreiner'],
+    pflichtfotos: [
+      'Flur Ist-Zustand (Gesamtansicht)',
+      'Treppenabschnitt mit Maßangabe',
+    ],
     aktiv: true,
   }),
   baue({
@@ -369,6 +377,10 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     ],
     zusatz_nachweise: ['vermieterzustimmung'],
     benoetigte_gewerke: ['schreiner', 'trockenbau'],
+    pflichtfotos: [
+      'Schwelle Nahaufnahme mit Maßband',
+      'Türrahmen Gesamtansicht',
+    ],
     aktiv: true,
   }),
   baue({
@@ -393,6 +405,10 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     ],
     zusatz_nachweise: ['masskizze', 'vermieterzustimmung'],
     benoetigte_gewerke: ['metallbau', 'grosshandel'],
+    pflichtfotos: [
+      'Hauseingang Ist-Zustand (mit Stufen)',
+      'Stufenhöhe mit Maßband',
+    ],
     aktiv: true,
   }),
   baue({
@@ -422,6 +438,12 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     ],
     zusatz_nachweise: ['masskizze', 'vermieterzustimmung'],
     benoetigte_gewerke: ['sanitaer', 'fliesen', 'trockenbau'],
+    pflichtfotos: [
+      'Badewanne Ist-Zustand (frontal)',
+      'Badezimmer Gesamtansicht',
+      'Ablaufbereich (Nahaufnahme)',
+      'Wandfläche Duschzone',
+    ],
     aktiv: true,
   }),
   baue({
@@ -450,6 +472,11 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     zusatz_nachweise: ['vermieterzustimmung', 'statiknachweis'],
     benoetigte_gewerke: ['maurer', 'schreiner', 'maler'],
     typische_ablehnungsgrund_ids: ['ag-erforderlichkeit', 'ag-zustaendigkeit'],
+    pflichtfotos: [
+      'Tür Ist-Zustand (frontal, mit Maßband Breite)',
+      'Türlaibung seitlich',
+      'Wandbereich neben Türöffnung (Statik)',
+    ],
     aktiv: true,
   }),
   baue({
@@ -473,6 +500,10 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     ],
     zusatz_nachweise: ['vermieterzustimmung'],
     benoetigte_gewerke: ['sanitaer'],
+    pflichtfotos: [
+      'Badewanne Ist-Zustand (Einstiegsseite)',
+      'Wannenrand Profil (Nahaufnahme)',
+    ],
     aktiv: true,
   }),
   baue({
@@ -497,6 +528,10 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     zusatz_nachweise: ['vermieterzustimmung'],
     benoetigte_gewerke: ['sanitaer', 'elektro'],
     typische_ablehnungsgrund_ids: ['ag-zustaendigkeit'],
+    pflichtfotos: [
+      'WC-Bereich Ist-Zustand (Gesamtansicht)',
+      'Wasseranschluss (Seitenansicht)',
+    ],
     aktiv: true,
   }),
   baue({
@@ -522,6 +557,10 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     zusatz_nachweise: [],
     benoetigte_gewerke: ['elektro', 'metallbau'],
     typische_ablehnungsgrund_ids: ['ag-zustaendigkeit'],
+    pflichtfotos: [
+      'Tür Außenansicht Ist-Zustand',
+      'Türrahmen Konstruktion (Befestigungspunkte)',
+    ],
     aktiv: true,
   }),
   baue({
@@ -546,6 +585,11 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     zusatz_nachweise: ['masskizze'],
     benoetigte_gewerke: ['metallbau', 'elektro'],
     typische_ablehnungsgrund_ids: ['ag-erforderlichkeit', 'ag-wirtschaftlichkeit'],
+    pflichtfotos: [
+      'Treppe Gesamtansicht (Ist-Zustand)',
+      'Treppenmündung unten',
+      'Treppenmündung oben',
+    ],
     aktiv: true,
   }),
   baue({
@@ -764,6 +808,9 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     reversibel: false,
     pflegegrad_voraussetzung: 1,
     genehmigungswahrscheinlichkeit: 'sehr_hoch',
+    pflichtfotos: [
+      'WC-Bereich Ist-Zustand (Montagewand)',
+    ],
     aktiv: true,
   }),
   baue({
@@ -794,6 +841,9 @@ export const MASSNAHMEN_KATALOG: MassnahmeKatalog[] = [
     reversibel: false,
     pflegegrad_voraussetzung: 1,
     genehmigungswahrscheinlichkeit: 'sehr_hoch',
+    pflichtfotos: [
+      'WC-Bereich beidseitig Ist-Zustand',
+    ],
     aktiv: true,
   }),
   baue({

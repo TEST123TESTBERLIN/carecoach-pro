@@ -9,6 +9,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Camera,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -26,6 +27,7 @@ const NAV: NavEintrag[] = [
   { pfad: '/kunden', label: 'Kunden', Icon: Users },
   { pfad: '/foerderrechner', label: 'Förderrechner', Icon: Calculator },
   { pfad: '/dokumente', label: 'Dokumente', Icon: FileText },
+  { pfad: '/fotos', label: 'Fotos', Icon: Camera },
   { pfad: '/einstellungen', label: 'Einstellungen', Icon: Settings },
 ];
 

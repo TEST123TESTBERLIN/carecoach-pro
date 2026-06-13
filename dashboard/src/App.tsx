@@ -8,6 +8,7 @@ import Workflow from './pages/Workflow';
 import Foerderrechner from './pages/Foerderrechner';
 import Dokumente from './pages/Dokumente';
 import Einstellungen from './pages/Einstellungen';
+import Fotos from './pages/Fotos';
 
 // Routing-Baum: /login ist öffentlich, alles andere liegt hinter
 // <ProtectedRoute> und teilt sich das <Layout> mit Sidebar.
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/foerderrechner" element={<Foerderrechner />} />
         <Route path="/dokumente" element={<Dokumente />} />
         <Route path="/einstellungen" element={<Einstellungen />} />
+        <Route path="/fotos" element={<Fotos />} />
       </Route>
 
       {/* Fallback: unbekannte Pfade zum Dashboard */}
