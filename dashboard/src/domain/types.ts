@@ -605,7 +605,9 @@ export type PartnerTyp =
   | 'seniorenresidenz'
   | 'wohnungsbau'
   | 'handwerker'
-  | 'lieferant';
+  | 'lieferant'
+  | 'krankenkasse'
+  | 'pflegekasse';
 
 export type PartnerBundesland = 'berlin' | 'brandenburg' | 'schleswig_holstein' | 'sonstige';
 
@@ -631,6 +633,7 @@ export interface Partner {
   website?: string;
   hrb?: string;
   ust_id?: string;
+  ik_nummer?: string;
   leistungen?: string;
   paragraph72_zugelassen?: boolean;
   hauptkasse?: string;

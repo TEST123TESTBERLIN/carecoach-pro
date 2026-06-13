@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Search, Plus, Pencil, Trash2, Download, Star, X, MapPin,
   ChevronUp, ChevronDown, ArrowUpDown,
@@ -22,6 +22,8 @@ const TYP_LABEL: Record<PartnerTyp, string> = {
   wohnungsbau: 'Wohnungsbau',
   handwerker: 'Handwerker',
   lieferant: 'Lieferant',
+  krankenkasse: 'Krankenkasse',
+  pflegekasse: 'Pflegekasse',
 };
 
 const BUNDESLAND_LABEL: Record<PartnerBundesland, string> = {
@@ -49,16 +51,17 @@ const CRM_FARBE: Record<CrmStatus, string> = {
 // Tabs
 // ---------------------------------------------------------------------------
 
-type TabKey = 'alle' | 'pflegedienst' | 'pflege_wg' | 'seniorenresidenz' | 'handwerker' | 'lieferant' | 'sonstige';
+type TabKey = 'alle' | 'pflegedienst' | 'pflege_wg' | 'seniorenresidenz' | 'handwerker' | 'krankenkasse' | 'pflegekasse' | 'lieferant';
 
 const TABS: { key: TabKey; label: string; typen: PartnerTyp[] }[] = [
-  { key: 'alle',           label: 'Alle',               typen: [] },
-  { key: 'pflegedienst',   label: 'Pflegedienste',       typen: ['pflegedienst'] },
-  { key: 'pflege_wg',      label: 'Pflege-WGs',          typen: ['pflege_wg'] },
-  { key: 'seniorenresidenz', label: 'Seniorenresidenzen', typen: ['seniorenresidenz'] },
-  { key: 'handwerker',     label: 'Handwerker',          typen: ['handwerker'] },
-  { key: 'lieferant',      label: 'Lieferanten',         typen: ['lieferant'] },
-  { key: 'sonstige',       label: 'Sonstige',            typen: ['pflegeberater', 'wohnungsbau'] },
+  { key: 'alle',             label: 'Alle',               typen: [] },
+  { key: 'pflegedienst',     label: 'Pflegedienste',       typen: ['pflegedienst'] },
+  { key: 'pflege_wg',        label: 'Pflege-WGs',          typen: ['pflege_wg'] },
+  { key: 'seniorenresidenz', label: 'Seniorenresidenzen',  typen: ['seniorenresidenz'] },
+  { key: 'handwerker',       label: 'Handwerker',          typen: ['handwerker'] },
+  { key: 'krankenkasse',     label: 'Krankenkassen',       typen: ['krankenkasse'] },
+  { key: 'pflegekasse',      label: 'Pflegekassen',        typen: ['pflegekasse'] },
+  { key: 'lieferant',        label: 'Lieferanten',         typen: ['lieferant'] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -138,7 +141,7 @@ function Sterne({ wert }: { wert?: 1 | 2 | 3 | 4 | 5 }) {
 function exportiereCSV(partner: Partner[]) {
   const kopf = [
     'Firmenname', 'Typ', 'GF', 'Ansprechpartner', 'Strasse', 'PLZ', 'Ort', 'Bezirk', 'Bundesland',
-    'Telefon', 'Mobil', 'Fax', 'E-Mail', 'Website', 'HRB', 'USt-ID',
+    'Telefon', 'Mobil', 'Fax', 'E-Mail', 'Website', 'HRB', 'USt-ID', 'IK-Nummer',
     'Leistungen', '§72', 'Hauptkasse', 'Sprachen', 'Patienten ca.',
     'Kooperation', 'CRM-Status', 'Bewertung', 'Letzter Kontakt', 'Notiz', 'Erstellt am',
   ];
@@ -146,7 +149,7 @@ function exportiereCSV(partner: Partner[]) {
     p.firmenname, TYP_LABEL[p.typ], p.geschaeftsfuehrer ?? '', p.ansprechpartner ?? '',
     p.strasse ?? '', p.plz ?? '', p.ort ?? '', p.bezirk ?? '', BUNDESLAND_LABEL[p.bundesland],
     p.telefon ?? '', p.mobil ?? '', p.fax ?? '', p.email ?? '', p.website ?? '',
-    p.hrb ?? '', p.ust_id ?? '', p.leistungen ?? '',
+    p.hrb ?? '', p.ust_id ?? '', p.ik_nummer ?? '', p.leistungen ?? '',
     p.paragraph72_zugelassen ? 'Ja' : 'Nein',
     p.hauptkasse ?? '', p.sprachen ?? '', p.patienten_ca?.toString() ?? '',
     p.kooperations_status, p.crm_status, p.bewertung?.toString() ?? '',
@@ -181,11 +184,13 @@ const LEER: PartnerEingabe = {
 
 function PartnerModal({
   partner,
+  allePartner,
   onClose,
   onSpeichern,
   onLoeschen,
 }: {
   partner: Partner | null;
+  allePartner: Partner[];
   onClose: () => void;
   onSpeichern: (id: string | null, daten: PartnerEingabe) => void;
   onLoeschen: (id: string) => void;
@@ -195,12 +200,29 @@ function PartnerModal({
   const [daten, setDaten] = useState<PartnerEingabe>(partner ? { ...partner } : LEER);
   const [loeschBestaetigung, setLoeschBestaetigung] = useState(false);
 
+  const duplikat = useMemo(() => {
+    const anderen = allePartner.filter(p => neuAnlegen ? true : p.id !== partner!.id);
+    if (daten.ik_nummer?.trim()) {
+      const k = anderen.find(p => p.ik_nummer === daten.ik_nummer!.trim());
+      if (k) return { art: 'fehler' as const, text: `IK-Nummer bereits vergeben (${k.firmenname})` };
+    }
+    if (daten.firmenname.trim() && daten.plz?.trim()) {
+      const k = anderen.find(p =>
+        p.firmenname.toLowerCase() === daten.firmenname.toLowerCase().trim() &&
+        p.plz === daten.plz!.trim()
+      );
+      if (k) return { art: 'warnung' as const, text: `Mögliches Duplikat: ${k.firmenname}, ${[k.plz, k.ort].filter(Boolean).join(' ')}` };
+    }
+    return null;
+  }, [daten.ik_nummer, daten.firmenname, daten.plz, allePartner, neuAnlegen, partner]);
+
   function set<K extends keyof PartnerEingabe>(feld: K, wert: PartnerEingabe[K]) {
     setDaten((d) => ({ ...d, [feld]: wert }));
   }
 
   function speichern() {
     if (!daten.firmenname.trim()) return;
+    if (duplikat?.art === 'fehler') return;
     onSpeichern(partner?.id ?? null, daten);
     onClose();
   }
@@ -229,7 +251,11 @@ function PartnerModal({
             <button onClick={() => { setBearbeiten(false); if (neuAnlegen) onClose(); }} className="px-4 py-2 rounded-lg text-sm text-muted hover:bg-elevated">
               Abbrechen
             </button>
-            <button onClick={speichern} className="px-4 py-2 rounded-lg bg-brand text-[#0D1B2A] text-sm font-semibold hover:opacity-90">
+            <button
+              onClick={speichern}
+              disabled={duplikat?.art === 'fehler'}
+              className={`px-4 py-2 rounded-lg bg-brand text-[#0D1B2A] text-sm font-semibold ${duplikat?.art === 'fehler' ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-90'}`}
+            >
               Speichern
             </button>
           </div>
@@ -335,7 +361,26 @@ function PartnerModal({
               <label className={labelCls}>USt-ID</label>
               <input className={input} value={daten.ust_id ?? ''} onChange={(e) => set('ust_id', e.target.value || undefined)} placeholder="DE…" />
             </div>
+            <div className="col-span-2">
+              <label className={labelCls}>IK-Nummer (Institutionskennzeichen)</label>
+              <input
+                className={`${input} ${daten.ik_nummer && duplikat?.art === 'fehler' ? 'border-red-500/60' : ''}`}
+                value={daten.ik_nummer ?? ''}
+                onChange={(e) => set('ik_nummer', e.target.value || undefined)}
+                placeholder="z. B. 104212505"
+              />
+            </div>
           </div>
+
+          {duplikat && (
+            <div className={`rounded-lg px-3 py-2 text-xs font-medium border ${
+              duplikat.art === 'fehler'
+                ? 'bg-red-500/15 text-red-400 border-red-500/40'
+                : 'bg-amber-500/15 text-amber-400 border-amber-500/40'
+            }`}>
+              {duplikat.art === 'fehler' ? 'Fehler: ' : 'Warnung: '}{duplikat.text}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
@@ -425,6 +470,7 @@ function PartnerModal({
             <FeldAnzeige label="Website" wert={partner!.website} />
             <FeldAnzeige label="HRB" wert={partner!.hrb} />
             <FeldAnzeige label="USt-ID" wert={partner!.ust_id} />
+            <FeldAnzeige label="IK-Nummer" wert={partner!.ik_nummer} />
           </div>
 
           {(partner!.leistungen || partner!.hauptkasse || partner!.sprachen || partner!.patienten_ca) && (
@@ -497,6 +543,7 @@ export default function PartnerSeite() {
       const heuhaufen = [
         p.firmenname, p.geschaeftsfuehrer, p.ansprechpartner,
         p.strasse, p.plz, p.ort, p.bezirk, p.email, p.notiz,
+        p.ik_nummer, p.hrb, p.telefon,
       ].filter(Boolean).join(' ').toLowerCase();
       return heuhaufen.includes(q);
     });
@@ -597,7 +644,7 @@ export default function PartnerSeite() {
         </div>
       </div>
 
-      {/* Typ-Tabs */}
+      {/* Typ-Tabs + Ergebniszähler */}
       <div className="flex gap-1 overflow-x-auto border-b border-white/10 pb-px">
         {TABS.map((tab) => {
           const anzahl = tabZaehler[tab.key] ?? 0;
@@ -619,6 +666,10 @@ export default function PartnerSeite() {
             </button>
           );
         })}
+      </div>
+
+      <div className="text-xs text-faint px-1">
+        {gefiltert.length} von {partner.length} Einträgen
       </div>
 
       {/* Tabelle */}
@@ -689,6 +740,7 @@ export default function PartnerSeite() {
       {modalZustand !== null && (
         <PartnerModal
           partner={modalZustand === 'neu' ? null : modalZustand}
+          allePartner={partner}
           onClose={() => setModalZustand(null)}
           onSpeichern={speichern}
           onLoeschen={deletePartner}
