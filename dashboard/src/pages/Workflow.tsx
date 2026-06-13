@@ -14,6 +14,7 @@ import { Card, SeitenKopf, Badge } from '@/components/ui';
 import type { BadgeFarbe } from '@/lib/kundenStatus';
 import { berechneFoerderung, euro } from '@/lib/foerderung';
 import { useAuth } from '@/context/AuthContext';
+import { useKunden } from '@/context/KundenContext';
 import type { Massnahme } from '@/types';
 import {
   MASSNAHMEN_KATALOG,
@@ -563,17 +564,19 @@ export default function Workflow() {
         titel="Neuer Vorgang"
         untertitel="Kernworkflow §40 Abs.4 SGB XI — von den Kundendaten bis zur 0-€-Zusammenfassung"
         aktion={
-          <button
-            onClick={() => {
-              setEntwurf(demoEntwurf());
-              setAusgewaehlt(new Set(DEMO_MASSNAHME_IDS));
-              setNachweisVorhanden({});
-              setSchritt(0);
-            }}
-            className="rounded-xl border border-white/15 bg-elevated px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-hover hover:text-ink"
-          >
-            Demo zurücksetzen
-          </button>
+          istAdmin ? (
+            <button
+              onClick={() => {
+                setEntwurf(demoEntwurf());
+                setAusgewaehlt(new Set(DEMO_MASSNAHME_IDS));
+                setNachweisVorhanden({});
+                setSchritt(0);
+              }}
+              className="rounded-xl border border-white/15 bg-elevated px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-hover hover:text-ink"
+            >
+              Demo zurücksetzen
+            </button>
+          ) : undefined
         }
       />
 
@@ -782,10 +785,54 @@ function SchrittKunde({
   entwurf: KundeEntwurf;
   setFeld: <K extends keyof KundeEntwurf>(key: K, wert: KundeEntwurf[K]) => void;
 }) {
+  const { kunden } = useKunden();
+
+  function kundeAuswaehlen(id: string) {
+    if (!id) return;
+    const k = kunden.find((c) => c.id === id);
+    if (!k) return;
+    setFeld('vorname', k.vorname);
+    setFeld('nachname', k.nachname);
+    setFeld('strasse', k.strasse);
+    setFeld('plz', k.plz);
+    setFeld('ort', k.ort);
+    setFeld('pflegegrad', k.pflegegrad);
+    setFeld('personen_mit_pflegegrad', k.personen_mit_pflegegrad ?? 1);
+    // Pflegekasse per Name in KASSEN nachschlagen.
+    const gefunden = KASSEN.find(
+      (kas) => kas.name.toLowerCase() === k.krankenkasse.toLowerCase(),
+    );
+    if (gefunden) setFeld('pflegekasse_id', gefunden.id);
+  }
+
   return (
     <div>
       <h2 className="text-lg font-bold text-ink">Kundendaten</h2>
       <p className="mt-1 text-sm text-muted">Person und Anschrift des pflegebedürftigen Kunden.</p>
+
+      {/* Bestehenden Kunden laden */}
+      {kunden.length > 0 && (
+        <label className="mt-4 block max-w-md">
+          <span className="mb-1.5 block text-sm font-medium text-muted">
+            Bestehenden Kunden laden
+          </span>
+          <select
+            defaultValue=""
+            onChange={(e) => kundeAuswaehlen(e.target.value)}
+            className="w-full rounded-xl border border-white/10 bg-elevated px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
+          >
+            <option value="" className="bg-elevated">
+              — Kunden aus Liste wählen —
+            </option>
+            {kunden.map((k) => (
+              <option key={k.id} value={k.id} className="bg-elevated">
+                {k.vorname} {k.nachname} · PG {k.pflegegrad} · {k.plz} {k.ort}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Feld label="Vorname" wert={entwurf.vorname} onChange={(v) => setFeld('vorname', v)} />
         <Feld label="Nachname" wert={entwurf.nachname} onChange={(v) => setFeld('nachname', v)} />
