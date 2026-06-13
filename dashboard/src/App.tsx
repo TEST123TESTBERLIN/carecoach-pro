@@ -9,6 +9,8 @@ import Foerderrechner from './pages/Foerderrechner';
 import Dokumente from './pages/Dokumente';
 import Einstellungen from './pages/Einstellungen';
 import Fotos from './pages/Fotos';
+import Hilfe from './pages/Hilfe';
+import Partner from './pages/Partner';
 
 // Routing-Baum: /login ist öffentlich, alles andere liegt hinter
 // <ProtectedRoute> und teilt sich das <Layout> mit Sidebar.
@@ -31,6 +33,8 @@ export default function App() {
         <Route path="/dokumente" element={<Dokumente />} />
         <Route path="/einstellungen" element={<Einstellungen />} />
         <Route path="/fotos" element={<Fotos />} />
+        <Route path="/hilfe" element={<Hilfe />} />
+        <Route path="/partner" element={<Partner />} />
       </Route>
 
       {/* Fallback: unbekannte Pfade zum Dashboard */}

@@ -594,6 +594,59 @@ export interface SkizzenAnhang {
   quellFotoIds: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Partner / CRM (Pflegedienste, Berater, WGs, Lieferanten …)
+// ---------------------------------------------------------------------------
+
+export type PartnerTyp =
+  | 'pflegedienst'
+  | 'pflegeberater'
+  | 'pflege_wg'
+  | 'seniorenresidenz'
+  | 'wohnungsbau'
+  | 'handwerker'
+  | 'lieferant';
+
+export type PartnerBundesland = 'berlin' | 'brandenburg' | 'schleswig_holstein' | 'sonstige';
+
+export type KooperationsStatus = 'Offen' | 'Kontaktiert' | 'Partner' | 'Inaktiv';
+
+export type CrmStatus = 'Neu' | 'Recherche' | 'In Gespräch' | 'Abgeschlossen';
+
+export interface Partner {
+  id: string;
+  typ: PartnerTyp;
+  firmenname: string;
+  geschaeftsfuehrer?: string;
+  ansprechpartner?: string;
+  strasse?: string;
+  plz?: string;
+  ort?: string;
+  bundesland: PartnerBundesland;
+  bezirk?: string;
+  telefon?: string;
+  mobil?: string;
+  fax?: string;
+  email?: string;
+  website?: string;
+  hrb?: string;
+  ust_id?: string;
+  leistungen?: string;
+  paragraph72_zugelassen?: boolean;
+  hauptkasse?: string;
+  sprachen?: string;
+  patienten_ca?: number;
+  kooperations_status: KooperationsStatus;
+  crm_status: CrmStatus;
+  notiz?: string;
+  letzter_kontakt?: string;
+  bewertung?: 1 | 2 | 3 | 4 | 5;
+  aktiv: boolean;
+  erstellt_am: string;
+}
+
+export type PartnerEingabe = Omit<Partner, 'id' | 'erstellt_am'>;
+
 // Phase 3: Ergebnis der KI-Barrierenerkennung (noch nicht implementiert).
 export interface KIBarriere {
   id: string;
