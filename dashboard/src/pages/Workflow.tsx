@@ -912,7 +912,7 @@ function SchrittPflegegrad({
   );
 }
 
-// --- Schritt 3: Pflegekasse (Dropdown aus KASSEN) ---
+// --- Schritt 3: Pflegekasse (Suchfeld mit IK-Nummer) ---
 function SchrittPflegekasse({
   wert,
   onWahl,
@@ -920,24 +920,45 @@ function SchrittPflegekasse({
   wert: string;
   onWahl: (id: string) => void;
 }) {
-  const kasse = KASSEN.find((k) => k.id === wert);
+  const kassenAktiv = KASSEN.filter((k) => k.aktiv);
+
+  // Anzeige-Label: "AOK Nordost (IK: 109519005)"
+  const kasseLabel = (k: { name: string; ik_nummer?: string }) =>
+    k.ik_nummer ? `${k.name} (IK: ${k.ik_nummer})` : k.name;
+
+  // Lokaler Suchtext — initial aus der vorausgewählten Kasse befüllt.
+  const [suchtext, setSuchtext] = useState(() => {
+    const k = kassenAktiv.find((k) => k.id === wert);
+    return k ? kasseLabel(k) : '';
+  });
+
+  // Kasse für die Badge-Anzeige — folgt dem gespeicherten wert (id).
+  const kasse = kassenAktiv.find((k) => k.id === wert);
+
   return (
     <div>
       <h2 className="text-lg font-bold text-ink">Pflegekasse</h2>
       <p className="mt-1 text-sm text-muted">Zuständige Kasse für die Antragstellung.</p>
       <label className="mt-5 block max-w-md">
         <span className="mb-1.5 block text-sm font-medium text-muted">Pflegekasse</span>
-        <select
-          value={wert}
-          onChange={(e) => onWahl(e.target.value)}
+        <input
+          list="pflegekassen-optionen"
+          value={suchtext}
+          onChange={(e) => {
+            const text = e.target.value;
+            setSuchtext(text);
+            // Exakte Übereinstimmung mit dem Label → Kassen-ID übernehmen.
+            const gefunden = kassenAktiv.find((k) => kasseLabel(k) === text);
+            if (gefunden) onWahl(gefunden.id);
+          }}
+          placeholder="Kasse suchen …"
           className="w-full rounded-xl border border-white/10 bg-elevated px-3 py-2.5 text-sm text-ink outline-none focus:border-brand"
-        >
-          {KASSEN.filter((k) => k.aktiv).map((k) => (
-            <option key={k.id} value={k.id} className="bg-elevated">
-              {k.name}
-            </option>
+        />
+        <datalist id="pflegekassen-optionen">
+          {kassenAktiv.map((k) => (
+            <option key={k.id} value={kasseLabel(k)} />
           ))}
-        </select>
+        </datalist>
       </label>
       {kasse && (
         <div className="mt-4 flex flex-wrap gap-2">

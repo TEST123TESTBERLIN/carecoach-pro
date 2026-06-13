@@ -1,7 +1,9 @@
-import { useState, type ReactNode, type ChangeEvent } from 'react';
+import { useState, useMemo, type ReactNode, type ChangeEvent } from 'react';
 import { Modal } from './ui';
 import { KUNDEN_STATUS } from '@/lib/kundenStatus';
 import type { Klient, KlientEingabe, Pflegegrad } from '@/types';
+import { KASSEN } from '@/domain/stammdatenSeed';
+import { ladePartner } from '@/services/partnerRepository';
 
 // Leeres Formular als Ausgangszustand beim Anlegen.
 const LEER: KlientEingabe = {
@@ -38,6 +40,12 @@ interface Props {
 export default function KundeForm({ initial, onAbbrechen, onSpeichern }: Props) {
   const [daten, setDaten] = useState<KlientEingabe>(initial ? ausKlient(initial) : LEER);
   const [fehler, setFehler] = useState<Record<string, string>>({});
+
+  // Pflegedienst-Namen aus localStorage — einmalig für die Type-ahead-Vorschläge.
+  const pflegedienste = useMemo(
+    () => ladePartner().filter((p) => p.typ === 'pflegedienst').map((p) => p.firmenname),
+    [],
+  );
 
   // Setzt ein Top-Level-Feld.
   function setFeld<K extends keyof KlientEingabe>(feld: K, wert: KlientEingabe[K]) {
@@ -147,7 +155,20 @@ export default function KundeForm({ initial, onAbbrechen, onSpeichern }: Props) 
             </select>
           </Feld>
           <Feld label="Krankenkasse">
-            <Input wert={daten.krankenkasse} onChange={(v) => setFeld('krankenkasse', v)} />
+            <>
+              <input
+                list="kasse-optionen"
+                value={daten.krankenkasse}
+                onChange={(e) => setFeld('krankenkasse', e.target.value)}
+                placeholder="Suchen oder manuell eingeben"
+                className={inputKlasse}
+              />
+              <datalist id="kasse-optionen">
+                {KASSEN.filter((k) => k.aktiv).map((k) => (
+                  <option key={k.id} value={k.name} />
+                ))}
+              </datalist>
+            </>
           </Feld>
           <Feld label="Versicherungsnummer" fehler={fehler.versicherungsnummer}>
             <Input wert={daten.versicherungsnummer} onChange={(v) => setFeld('versicherungsnummer', v)} />
@@ -194,7 +215,20 @@ export default function KundeForm({ initial, onAbbrechen, onSpeichern }: Props) 
         {/* Ambulante Pflege */}
         <Abschnitt titel="Ambulante Pflege">
           <Feld label="Pflegedienst" voll>
-            <Input wert={daten.ambulante_pflege.dienst} onChange={(v) => setPflege('dienst', v)} />
+            <>
+              <input
+                list="pflegedienst-optionen"
+                value={daten.ambulante_pflege.dienst}
+                onChange={(e) => setPflege('dienst', e.target.value)}
+                placeholder="Suchen oder manuell eingeben"
+                className={inputKlasse}
+              />
+              <datalist id="pflegedienst-optionen">
+                {pflegedienste.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+            </>
           </Feld>
           <Feld label="Kontaktperson">
             <Input
