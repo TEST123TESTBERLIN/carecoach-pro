@@ -13,7 +13,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // Proxy auf das FastAPI-Backend während der Entwicklung
+    fs: {
+      // Erlaubt ?raw-Import von docs/HANDBUCH.md (außerhalb des Projekt-Roots)
+      allow: [path.resolve(__dirname, '..')],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:8000',

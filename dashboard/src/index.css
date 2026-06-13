@@ -31,6 +31,42 @@ html.light .border-white\/10 { border-color: rgba(0, 0, 0, 0.10); }
 html.light .border-white\/15 { border-color: rgba(0, 0, 0, 0.12); }
 html.light .border-white\/20 { border-color: rgba(0, 0, 0, 0.15); }
 
+/* Akkordeon-Animation für die Hilfe-Seite. */
+.akk-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s ease;
+}
+.akk-content.offen {
+  grid-template-rows: 1fr;
+}
+.akk-content > div {
+  overflow: hidden;
+}
+
+/* Markdown-Prose-Renderer für das Handbuch. */
+.md-prose p   { margin-bottom: 0.6rem; font-size: 0.875rem; color: var(--color-muted); line-height: 1.65; }
+.md-prose h3  { margin: 1.1rem 0 0.4rem; font-size: 0.9rem; font-weight: 700; color: var(--color-ink); }
+.md-prose ul, .md-prose ol { padding-left: 1.25rem; margin-bottom: 0.6rem; }
+.md-prose ul  { list-style-type: disc; }
+.md-prose ol  { list-style-type: decimal; }
+.md-prose li  { font-size: 0.875rem; color: var(--color-muted); margin-bottom: 0.2rem; line-height: 1.55; }
+.md-prose blockquote { border-left: 3px solid #2ECC8A; padding: 0.5rem 0.75rem; margin: 0.75rem 0; background: rgba(46,204,138,0.06); border-radius: 0 0.5rem 0.5rem 0; }
+.md-prose blockquote p { color: var(--color-muted); font-style: italic; margin: 0; }
+.md-prose table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; margin-bottom: 0.75rem; }
+.md-prose thead th { text-align: left; padding: 0.35rem 0.6rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-faint); border-bottom: 1px solid rgba(255,255,255,0.12); }
+.md-prose tbody td { padding: 0.45rem 0.6rem; color: var(--color-muted); border-bottom: 1px solid rgba(255,255,255,0.06); vertical-align: top; }
+.md-prose .md-code { font-family: ui-monospace, monospace; font-size: 0.8em; background: rgba(255,255,255,0.07); padding: 0.1em 0.4em; border-radius: 0.25rem; color: var(--color-ink); }
+.md-prose strong  { font-weight: 600; color: var(--color-ink); }
+.md-prose .md-tasks { list-style: none; padding-left: 0; }
+.md-prose .md-tasks li { display: flex; gap: 0.5rem; align-items: flex-start; }
+.md-prose .md-tasks .md-done { color: #2ECC8A; }
+.md-prose .md-tasks .md-offen { color: var(--color-faint); }
+/* Light-Mode-Anpassungen */
+html.light .md-prose thead th { border-bottom-color: rgba(0,0,0,0.12); }
+html.light .md-prose tbody td  { border-bottom-color: rgba(0,0,0,0.06); }
+html.light .md-prose .md-code  { background: rgba(0,0,0,0.06); }
+
 @layer base {
   html,
   body,

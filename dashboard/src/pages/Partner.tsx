@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Search, Plus, Pencil, Trash2, Download, Star, X, MapPin,
+  ChevronUp, ChevronDown, ArrowUpDown,
 } from 'lucide-react';
 import { SeitenKopf, Modal } from '@/components/ui';
 import { usePartner } from '@/context/PartnerContext';
@@ -43,6 +44,75 @@ const CRM_FARBE: Record<CrmStatus, string> = {
   'In Gespräch': 'bg-blue-500/15 text-blue-400 border-blue-500/40',
   Abgeschlossen: 'bg-emerald-500/15 text-brand border-emerald-500/40',
 };
+
+// ---------------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------------
+
+type TabKey = 'alle' | 'pflegedienst' | 'pflege_wg' | 'seniorenresidenz' | 'handwerker' | 'lieferant' | 'sonstige';
+
+const TABS: { key: TabKey; label: string; typen: PartnerTyp[] }[] = [
+  { key: 'alle',           label: 'Alle',               typen: [] },
+  { key: 'pflegedienst',   label: 'Pflegedienste',       typen: ['pflegedienst'] },
+  { key: 'pflege_wg',      label: 'Pflege-WGs',          typen: ['pflege_wg'] },
+  { key: 'seniorenresidenz', label: 'Seniorenresidenzen', typen: ['seniorenresidenz'] },
+  { key: 'handwerker',     label: 'Handwerker',          typen: ['handwerker'] },
+  { key: 'lieferant',      label: 'Lieferanten',         typen: ['lieferant'] },
+  { key: 'sonstige',       label: 'Sonstige',            typen: ['pflegeberater', 'wohnungsbau'] },
+];
+
+// ---------------------------------------------------------------------------
+// Sortierung
+// ---------------------------------------------------------------------------
+
+type SortSpalte = 'name' | 'typ' | 'ort' | 'bundesland' | 'bezirk' | 'kooperation' | 'bewertung' | 'letzter_kontakt';
+
+const KOOP_ORDER: KooperationsStatus[] = ['Partner', 'Kontaktiert', 'Offen', 'Inaktiv'];
+
+function sortierePartner(liste: Partner[], spalte: SortSpalte, richtung: 'asc' | 'desc'): Partner[] {
+  const m = richtung === 'asc' ? 1 : -1;
+  return [...liste].sort((a, b) => {
+    let v = 0;
+    switch (spalte) {
+      case 'name':          v = a.firmenname.localeCompare(b.firmenname, 'de'); break;
+      case 'typ':           v = TYP_LABEL[a.typ].localeCompare(TYP_LABEL[b.typ], 'de'); break;
+      case 'ort':           v = (a.ort ?? '').localeCompare(b.ort ?? '', 'de'); break;
+      case 'bundesland':    v = a.bundesland.localeCompare(b.bundesland, 'de'); break;
+      case 'bezirk':        v = (a.bezirk ?? '').localeCompare(b.bezirk ?? '', 'de'); break;
+      case 'kooperation':   v = KOOP_ORDER.indexOf(a.kooperations_status) - KOOP_ORDER.indexOf(b.kooperations_status); break;
+      case 'bewertung':     v = (b.bewertung ?? 0) - (a.bewertung ?? 0); break;
+      case 'letzter_kontakt': v = (b.letzter_kontakt ?? '').localeCompare(a.letzter_kontakt ?? ''); break;
+    }
+    return v * m;
+  });
+}
+
+// Spalten-Header mit Sortier-Indikator.
+function SortTh({
+  label, spalte, aktiv, richtung, onSort, className,
+}: {
+  label: string;
+  spalte: SortSpalte;
+  aktiv: SortSpalte;
+  richtung: 'asc' | 'desc';
+  onSort: (s: SortSpalte) => void;
+  className?: string;
+}) {
+  const istAktiv = aktiv === spalte;
+  return (
+    <th
+      className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide cursor-pointer select-none transition-colors hover:text-ink ${istAktiv ? 'text-brand' : 'text-faint'} ${className ?? ''}`}
+      onClick={() => onSort(spalte)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {istAktiv
+          ? (richtung === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)
+          : <ArrowUpDown className="h-3 w-3 opacity-30" />}
+      </span>
+    </th>
+  );
+}
 
 function StatusBadge({ label, klasse }: { label: string; klasse: string }) {
   return (
@@ -115,7 +185,7 @@ function PartnerModal({
   onSpeichern,
   onLoeschen,
 }: {
-  partner: Partner | null; // null = Neu anlegen
+  partner: Partner | null;
   onClose: () => void;
   onSpeichern: (id: string | null, daten: PartnerEingabe) => void;
   onLoeschen: (id: string) => void;
@@ -135,7 +205,6 @@ function PartnerModal({
     onClose();
   }
 
-  // Im View-Modus: alle Felder als Beschriftung anzeigen.
   function FeldAnzeige({ label, wert }: { label: string; wert?: string | number | boolean }) {
     if (!wert && wert !== 0 && wert !== false) return null;
     return (
@@ -148,7 +217,7 @@ function PartnerModal({
 
   const input = 'w-full rounded-lg border border-white/15 bg-elevated px-3 py-1.5 text-sm text-ink placeholder:text-faint focus:border-brand focus:outline-none';
   const select = 'w-full rounded-lg border border-white/15 bg-elevated px-3 py-1.5 text-sm text-ink focus:border-brand focus:outline-none';
-  const label = 'block text-xs text-faint mb-1';
+  const labelCls = 'block text-xs text-faint mb-1';
 
   return (
     <Modal
@@ -188,94 +257,89 @@ function PartnerModal({
     >
       {bearbeiten ? (
         <div className="space-y-4">
-          {/* Stammdaten */}
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className={label}>Firmenname *</label>
+              <label className={labelCls}>Firmenname *</label>
               <input className={input} value={daten.firmenname} onChange={(e) => set('firmenname', e.target.value)} placeholder="Firmenname" />
             </div>
             <div>
-              <label className={label}>Typ</label>
+              <label className={labelCls}>Typ</label>
               <select className={select} value={daten.typ} onChange={(e) => set('typ', e.target.value as PartnerTyp)}>
                 {Object.entries(TYP_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
             <div>
-              <label className={label}>Bundesland</label>
+              <label className={labelCls}>Bundesland</label>
               <select className={select} value={daten.bundesland} onChange={(e) => set('bundesland', e.target.value as PartnerBundesland)}>
                 {Object.entries(BUNDESLAND_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
             <div>
-              <label className={label}>Geschäftsführer</label>
+              <label className={labelCls}>Geschäftsführer</label>
               <input className={input} value={daten.geschaeftsfuehrer ?? ''} onChange={(e) => set('geschaeftsfuehrer', e.target.value || undefined)} placeholder="Name(n)" />
             </div>
             <div>
-              <label className={label}>Ansprechpartner</label>
+              <label className={labelCls}>Ansprechpartner</label>
               <input className={input} value={daten.ansprechpartner ?? ''} onChange={(e) => set('ansprechpartner', e.target.value || undefined)} placeholder="Name" />
             </div>
           </div>
 
-          {/* Adresse */}
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-3">
-              <label className={label}>Straße</label>
+              <label className={labelCls}>Straße</label>
               <input className={input} value={daten.strasse ?? ''} onChange={(e) => set('strasse', e.target.value || undefined)} placeholder="Straße Nr." />
             </div>
             <div>
-              <label className={label}>PLZ</label>
+              <label className={labelCls}>PLZ</label>
               <input className={input} value={daten.plz ?? ''} onChange={(e) => set('plz', e.target.value || undefined)} placeholder="12345" />
             </div>
             <div>
-              <label className={label}>Ort</label>
+              <label className={labelCls}>Ort</label>
               <input className={input} value={daten.ort ?? ''} onChange={(e) => set('ort', e.target.value || undefined)} placeholder="Stadt" />
             </div>
             <div>
-              <label className={label}>Bezirk</label>
+              <label className={labelCls}>Bezirk</label>
               <input className={input} value={daten.bezirk ?? ''} onChange={(e) => set('bezirk', e.target.value || undefined)} placeholder="Bezirk" />
             </div>
           </div>
 
-          {/* Kontakt */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={label}>Telefon</label>
+              <label className={labelCls}>Telefon</label>
               <input className={input} value={daten.telefon ?? ''} onChange={(e) => set('telefon', e.target.value || undefined)} placeholder="030 …" />
             </div>
             <div>
-              <label className={label}>Mobil</label>
+              <label className={labelCls}>Mobil</label>
               <input className={input} value={daten.mobil ?? ''} onChange={(e) => set('mobil', e.target.value || undefined)} placeholder="0176 …" />
             </div>
             <div>
-              <label className={label}>Fax</label>
+              <label className={labelCls}>Fax</label>
               <input className={input} value={daten.fax ?? ''} onChange={(e) => set('fax', e.target.value || undefined)} placeholder="030 …" />
             </div>
             <div>
-              <label className={label}>E-Mail</label>
+              <label className={labelCls}>E-Mail</label>
               <input className={input} value={daten.email ?? ''} onChange={(e) => set('email', e.target.value || undefined)} placeholder="info@…" />
             </div>
             <div className="col-span-2">
-              <label className={label}>Website</label>
+              <label className={labelCls}>Website</label>
               <input className={input} value={daten.website ?? ''} onChange={(e) => set('website', e.target.value || undefined)} placeholder="www.beispiel.de" />
             </div>
           </div>
 
-          {/* Registerangaben */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={label}>HRB</label>
+              <label className={labelCls}>HRB</label>
               <input className={input} value={daten.hrb ?? ''} onChange={(e) => set('hrb', e.target.value || undefined)} placeholder="HRB 12345" />
             </div>
             <div>
-              <label className={label}>USt-ID</label>
+              <label className={labelCls}>USt-ID</label>
               <input className={input} value={daten.ust_id ?? ''} onChange={(e) => set('ust_id', e.target.value || undefined)} placeholder="DE…" />
             </div>
           </div>
 
-          {/* Pflegebetrieb */}
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className={label}>Leistungen</label>
+              <label className={labelCls}>Leistungen</label>
               <input className={input} value={daten.leistungen ?? ''} onChange={(e) => set('leistungen', e.target.value || undefined)} placeholder="Ambulante Pflege / …" />
             </div>
             <div className="flex items-center gap-2 pt-1">
@@ -283,35 +347,34 @@ function PartnerModal({
               <label htmlFor="p72" className="text-sm text-ink cursor-pointer">§72 SGB XI zugelassen</label>
             </div>
             <div>
-              <label className={label}>Patienten ca.</label>
+              <label className={labelCls}>Patienten ca.</label>
               <input type="number" className={input} value={daten.patienten_ca ?? ''} onChange={(e) => set('patienten_ca', e.target.value ? Number(e.target.value) : undefined)} placeholder="0" />
             </div>
             <div>
-              <label className={label}>Hauptkasse</label>
+              <label className={labelCls}>Hauptkasse</label>
               <input className={input} value={daten.hauptkasse ?? ''} onChange={(e) => set('hauptkasse', e.target.value || undefined)} placeholder="AOK Nordost" />
             </div>
             <div>
-              <label className={label}>Sprachen</label>
+              <label className={labelCls}>Sprachen</label>
               <input className={input} value={daten.sprachen ?? ''} onChange={(e) => set('sprachen', e.target.value || undefined)} placeholder="Deutsch / Russisch" />
             </div>
           </div>
 
-          {/* CRM */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={label}>Kooperationsstatus</label>
+              <label className={labelCls}>Kooperationsstatus</label>
               <select className={select} value={daten.kooperations_status} onChange={(e) => set('kooperations_status', e.target.value as KooperationsStatus)}>
                 {(['Offen', 'Kontaktiert', 'Partner', 'Inaktiv'] as KooperationsStatus[]).map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </div>
             <div>
-              <label className={label}>CRM-Status</label>
+              <label className={labelCls}>CRM-Status</label>
               <select className={select} value={daten.crm_status} onChange={(e) => set('crm_status', e.target.value as CrmStatus)}>
                 {(['Neu', 'Recherche', 'In Gespräch', 'Abgeschlossen'] as CrmStatus[]).map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </div>
             <div>
-              <label className={label}>Bewertung (1–5)</label>
+              <label className={labelCls}>Bewertung (1–5)</label>
               <div className="flex gap-1 pt-1">
                 {[1, 2, 3, 4, 5].map((n) => (
                   <button key={n} type="button" onClick={() => set('bewertung', daten.bewertung === n ? undefined : n as 1|2|3|4|5)}>
@@ -321,20 +384,18 @@ function PartnerModal({
               </div>
             </div>
             <div>
-              <label className={label}>Letzter Kontakt</label>
+              <label className={labelCls}>Letzter Kontakt</label>
               <input type="date" className={input} value={daten.letzter_kontakt ?? ''} onChange={(e) => set('letzter_kontakt', e.target.value || undefined)} />
             </div>
           </div>
 
           <div>
-            <label className={label}>Notiz</label>
+            <label className={labelCls}>Notiz</label>
             <textarea className={`${input} resize-none`} rows={3} value={daten.notiz ?? ''} onChange={(e) => set('notiz', e.target.value || undefined)} placeholder="Interne Notiz …" />
           </div>
         </div>
       ) : (
-        // View-Modus
         <div className="space-y-5">
-          {/* Header */}
           <div className="flex flex-wrap gap-2">
             <StatusBadge label={TYP_LABEL[partner!.typ]} klasse="bg-blue-500/15 text-blue-400 border-blue-500/40" />
             <StatusBadge label={partner!.kooperations_status} klasse={KOOP_FARBE[partner!.kooperations_status]} />
@@ -345,7 +406,6 @@ function PartnerModal({
             {partner!.bewertung && <Sterne wert={partner!.bewertung} />}
           </div>
 
-          {/* Adresse & Kontakt */}
           <div className="grid grid-cols-2 gap-x-6 gap-y-3">
             <FeldAnzeige label="Geschäftsführer" wert={partner!.geschaeftsfuehrer} />
             <FeldAnzeige label="Ansprechpartner" wert={partner!.ansprechpartner} />
@@ -367,7 +427,6 @@ function PartnerModal({
             <FeldAnzeige label="USt-ID" wert={partner!.ust_id} />
           </div>
 
-          {/* Pflegebetrieb */}
           {(partner!.leistungen || partner!.hauptkasse || partner!.sprachen || partner!.patienten_ca) && (
             <div className="border-t border-white/10 pt-4 grid grid-cols-2 gap-x-6 gap-y-3">
               <FeldAnzeige label="Leistungen" wert={partner!.leistungen} />
@@ -377,7 +436,6 @@ function PartnerModal({
             </div>
           )}
 
-          {/* CRM */}
           <div className="border-t border-white/10 pt-4 grid grid-cols-2 gap-x-6 gap-y-3">
             <FeldAnzeige label="Letzter Kontakt" wert={partner!.letzter_kontakt} />
             <FeldAnzeige label="Erstellt am" wert={partner!.erstellt_am} />
@@ -402,25 +460,34 @@ export default function PartnerSeite() {
   const { partner, addPartner, updatePartner, deletePartner } = usePartner();
 
   const [suche, setSuche] = useState('');
-  const [filterTyp, setFilterTyp] = useState<PartnerTyp | 'alle'>('alle');
+  const [tabAktiv, setTabAktiv] = useState<TabKey>('alle');
   const [filterBundesland, setFilterBundesland] = useState<PartnerBundesland | 'alle'>('alle');
   const [filterBezirk, setFilterBezirk] = useState('');
   const [filterP72, setFilterP72] = useState<'alle' | 'ja' | 'nein'>('alle');
   const [filterKoop, setFilterKoop] = useState<KooperationsStatus | 'alle'>('alle');
+  const [sortSpalte, setSortSpalte] = useState<SortSpalte>('name');
+  const [sortRichtung, setSortRichtung] = useState<'asc' | 'desc'>('asc');
 
-  // Modal-Zustand: null = geschlossen, 'neu' = anlegen, Partner-Objekt = anzeigen/bearbeiten
   const [modalZustand, setModalZustand] = useState<null | 'neu' | Partner>(null);
 
-  // Alle einzigartigen Bezirke (für Filter-Dropdown).
   const bezirke = useMemo(
     () => [...new Set(partner.map((p) => p.bezirk).filter(Boolean) as string[])].sort(),
     [partner],
   );
 
-  const gefiltert = useMemo(() => {
+  function onSort(spalte: SortSpalte) {
+    if (sortSpalte === spalte) {
+      setSortRichtung((r) => (r === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortSpalte(spalte);
+      setSortRichtung('asc');
+    }
+  }
+
+  // Gefiltert ohne Tab-Filter → für Tab-Zähler.
+  const gefiltertOhneTab = useMemo(() => {
     const q = suche.trim().toLowerCase();
     return partner.filter((p) => {
-      if (filterTyp !== 'alle' && p.typ !== filterTyp) return false;
       if (filterBundesland !== 'alle' && p.bundesland !== filterBundesland) return false;
       if (filterBezirk && p.bezirk !== filterBezirk) return false;
       if (filterP72 === 'ja' && !p.paragraph72_zugelassen) return false;
@@ -433,14 +500,31 @@ export default function PartnerSeite() {
       ].filter(Boolean).join(' ').toLowerCase();
       return heuhaufen.includes(q);
     });
-  }, [partner, suche, filterTyp, filterBundesland, filterBezirk, filterP72, filterKoop]);
+  }, [partner, suche, filterBundesland, filterBezirk, filterP72, filterKoop]);
+
+  // Tab-Zähler.
+  const tabZaehler = useMemo(() => {
+    const z: Partial<Record<TabKey, number>> = {};
+    for (const tab of TABS) {
+      z[tab.key] = tab.typen.length === 0
+        ? gefiltertOhneTab.length
+        : gefiltertOhneTab.filter((p) => (tab.typen as PartnerTyp[]).includes(p.typ)).length;
+    }
+    return z;
+  }, [gefiltertOhneTab]);
+
+  // Finale gefilterte + sortierte Liste.
+  const gefiltert = useMemo(() => {
+    const tab = TABS.find((t) => t.key === tabAktiv)!;
+    const mitTab = tab.typen.length === 0
+      ? gefiltertOhneTab
+      : gefiltertOhneTab.filter((p) => (tab.typen as PartnerTyp[]).includes(p.typ));
+    return sortierePartner(mitTab, sortSpalte, sortRichtung);
+  }, [gefiltertOhneTab, tabAktiv, sortSpalte, sortRichtung]);
 
   function speichern(id: string | null, daten: PartnerEingabe) {
-    if (id) {
-      updatePartner(id, daten);
-    } else {
-      addPartner(daten);
-    }
+    if (id) updatePartner(id, daten);
+    else addPartner(daten);
   }
 
   const select = 'rounded-lg border border-white/15 bg-elevated px-3 py-2 text-sm text-ink focus:border-brand focus:outline-none';
@@ -486,11 +570,6 @@ export default function PartnerSeite() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <select className={select} value={filterTyp} onChange={(e) => setFilterTyp(e.target.value as PartnerTyp | 'alle')}>
-            <option value="alle">Alle Typen</option>
-            {Object.entries(TYP_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-
           <select className={select} value={filterBundesland} onChange={(e) => setFilterBundesland(e.target.value as PartnerBundesland | 'alle')}>
             <option value="alle">Alle Bundesländer</option>
             {Object.entries(BUNDESLAND_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -518,19 +597,43 @@ export default function PartnerSeite() {
         </div>
       </div>
 
+      {/* Typ-Tabs */}
+      <div className="flex gap-1 overflow-x-auto border-b border-white/10 pb-px">
+        {TABS.map((tab) => {
+          const anzahl = tabZaehler[tab.key] ?? 0;
+          const aktiv = tabAktiv === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setTabAktiv(tab.key)}
+              className={`shrink-0 rounded-t-lg px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap border-b-2 -mb-px ${
+                aktiv
+                  ? 'border-brand text-brand'
+                  : 'border-transparent text-muted hover:text-ink'
+              }`}
+            >
+              {tab.label}
+              <span className={`ml-1.5 text-xs ${aktiv ? 'text-brand/70' : 'text-faint'}`}>
+                ({anzahl})
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Tabelle */}
       <div className="overflow-hidden rounded-2xl border border-white/10 bg-card">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/10">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-faint uppercase tracking-wide">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-faint uppercase tracking-wide hidden sm:table-cell">Typ</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-faint uppercase tracking-wide hidden md:table-cell">Ort</th>
+                <SortTh label="Name"       spalte="name"          aktiv={sortSpalte} richtung={sortRichtung} onSort={onSort} />
+                <SortTh label="Typ"        spalte="typ"           aktiv={sortSpalte} richtung={sortRichtung} onSort={onSort} className="hidden sm:table-cell" />
+                <SortTh label="Ort"        spalte="ort"           aktiv={sortSpalte} richtung={sortRichtung} onSort={onSort} className="hidden md:table-cell" />
                 <th className="px-4 py-3 text-left text-xs font-semibold text-faint uppercase tracking-wide hidden lg:table-cell">Telefon</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-faint uppercase tracking-wide hidden lg:table-cell">GF</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-faint uppercase tracking-wide">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-faint uppercase tracking-wide hidden sm:table-cell">Bewertung</th>
+                <SortTh label="Status"     spalte="kooperation"   aktiv={sortSpalte} richtung={sortRichtung} onSort={onSort} />
+                <SortTh label="Bewertung"  spalte="bewertung"     aktiv={sortSpalte} richtung={sortRichtung} onSort={onSort} className="hidden sm:table-cell" />
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
@@ -583,7 +686,6 @@ export default function PartnerSeite() {
         </div>
       </div>
 
-      {/* Modal */}
       {modalZustand !== null && (
         <PartnerModal
           partner={modalZustand === 'neu' ? null : modalZustand}
