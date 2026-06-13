@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Check, RotateCcw, Trash2, Upload } from 'lucide-react';
+import { Check, RotateCcw, Trash2, Upload, Moon, Sun } from 'lucide-react';
 import { Card, SeitenKopf } from '@/components/ui';
 import {
   repository,
@@ -14,6 +14,23 @@ export default function Einstellungen() {
   const [u, setU] = useState<Unternehmen>(() => repository.unternehmen.get());
   const [gespeichert, setGespeichert] = useState(false);
   const dateiInput = useRef<HTMLInputElement>(null);
+
+  // Theme-Zustand — synchron aus dem <html>-Element lesen.
+  const [lightMode, setLightMode] = useState(
+    () => document.documentElement.classList.contains('light'),
+  );
+
+  function themeUmschalten() {
+    const naechstes = !lightMode;
+    setLightMode(naechstes);
+    if (naechstes) {
+      document.documentElement.classList.add('light');
+      localStorage.setItem('theme', 'light');
+    } else {
+      document.documentElement.classList.remove('light');
+      localStorage.setItem('theme', 'dark');
+    }
+  }
 
   function setFeld<K extends keyof Unternehmen>(key: K, wert: Unternehmen[K]) {
     setU((prev) => ({ ...prev, [key]: wert }));
@@ -77,6 +94,45 @@ export default function Einstellungen() {
           </div>
         }
       />
+
+      {/* Darstellung */}
+      <Card className="mb-6">
+        <Abschnitt titel="Darstellung" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {lightMode ? (
+              <Sun className="h-5 w-5 text-warn" />
+            ) : (
+              <Moon className="h-5 w-5 text-brand" />
+            )}
+            <div>
+              <p className="text-sm font-semibold text-ink">
+                {lightMode ? 'Light Mode' : 'Dark Mode'}
+              </p>
+              <p className="text-xs text-faint">
+                {lightMode
+                  ? 'Helles Design — weißer Hintergrund, dunkle Schrift'
+                  : 'Dunkles Design — Standard'}
+              </p>
+            </div>
+          </div>
+          {/* Toggle-Switch */}
+          <button
+            role="switch"
+            aria-checked={lightMode}
+            onClick={themeUmschalten}
+            className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+              lightMode ? 'bg-brand' : 'bg-elevated'
+            }`}
+          >
+            <span
+              className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                lightMode ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Firma & Anschrift */}

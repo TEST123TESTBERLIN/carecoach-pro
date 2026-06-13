@@ -2,7 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Globale Grundeinstellungen */
+/* CSS-Custom-Properties — Dark Mode ist der Standard. */
+:root {
+  --color-base:     #0D1B2A;
+  --color-panel:    #122236;
+  --color-card:     #162840;
+  --color-elevated: #1B3050;
+  --color-hover:    #243D5A;
+  --color-ink:      #F0EDE8;
+  --color-muted:    #A8B4C0;
+  --color-faint:    #6B7F90;
+}
+
+/* Light Mode — aktiviert durch <html class="light">. */
+html.light {
+  --color-base:     #F0F2F5;
+  --color-panel:    #FFFFFF;
+  --color-card:     #FFFFFF;
+  --color-elevated: #F5F7FA;
+  --color-hover:    #E8ECF0;
+  --color-ink:      #111827;
+  --color-muted:    #4B5563;
+  --color-faint:    #6B7280;
+}
+
+/* border-white/x ist auf hellem Hintergrund unsichtbar → auf dunkel umbiegen. */
+html.light .border-white\/10 { border-color: rgba(0, 0, 0, 0.10); }
+html.light .border-white\/15 { border-color: rgba(0, 0, 0, 0.12); }
+html.light .border-white\/20 { border-color: rgba(0, 0, 0, 0.15); }
+
 @layer base {
   html,
   body,
@@ -12,16 +40,13 @@
   body {
     @apply bg-base text-ink font-sans antialiased;
   }
-  /* Dezenter Scrollbalken passend zum dunklen Theme */
-  ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-  ::-webkit-scrollbar-track {
-    background: #0d1b2a;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #243d5a;
-    border-radius: 9999px;
-  }
+
+  /* Scrollbalken — Dark Mode */
+  ::-webkit-scrollbar        { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track  { background: #0d1b2a; }
+  ::-webkit-scrollbar-thumb  { background: #243d5a; border-radius: 9999px; }
+
+  /* Scrollbalken — Light Mode */
+  html.light ::-webkit-scrollbar-track { background: #e8ecf0; }
+  html.light ::-webkit-scrollbar-thumb { background: #a0aec0; }
 }
